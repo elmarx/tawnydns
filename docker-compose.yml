@@ -1,0 +1,13 @@
+---
+version: "3"
+
+services:
+  pdns:
+    image: powerdns/pdns-auth-47
+    environment:
+      - PDNS_AUTH_API_KEY=secret
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "5354:53/udp"
+      - "8081:8081"
