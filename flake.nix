@@ -29,6 +29,8 @@
             nixpkgs-fmt
           ] ++ lib.optionals (stdenv.isDarwin) [ darwin.apple_sdk.frameworks.Security ];
         };
+
+        defaultPackage = pkgs.callPackage ./default.nix { };
       }
     );
 }
