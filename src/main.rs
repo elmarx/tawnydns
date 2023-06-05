@@ -15,25 +15,23 @@ use axum::{
     http::{Request, Response, uri::Uri},
 };
 use hyper::{Body, client::HttpConnector};
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::OnceLock;
+
+static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
 const X_API_KEY: &str = "X-API-Key";
 const ACTUAL_API_KEY: &str = "secret";
 
-lazy_static! {
-    static ref KEY_TO_ZONE: HashMap<&'static str, &'static str> = {
-        let mut m = HashMap::new();
-        m.insert("mysecret", "example.com");
-        m
-    };
-}
-
 #[tokio::main]
 async fn main() {
+    let mut m = HashMap::new();
+    m.insert("mysecret", "example.com");
+    KEY_TO_ZONE.set(m).unwrap();
+
     let client = Client::new();
 
     let app = Router::new()
@@ -100,7 +98,7 @@ async fn handle_zone(
         .headers()
         .get(X_API_KEY)
         .and_then(|v| v.to_str().ok())
-        .and_then(|key| KEY_TO_ZONE.get(key));
+        .and_then(|key| KEY_TO_ZONE.get().unwrap().get(key));
 
     // the zone in PowerDNS-Api requests may end with a '.' but is not required to end with a '.'
     // so let's normalize it here
