@@ -7,6 +7,7 @@
 //! cargo run -p example-reverse-proxy
 //! ```
 
+use crate::config::{read_config, Config};
 use axum::extract::Path;
 use axum::routing::any;
 use axum::{
@@ -15,25 +16,18 @@ use axum::{
     Router,
 };
 use hyper::{client::HttpConnector, Body};
-use std::cell::OnceCell;
-use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::OnceLock;
 
-static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+mod config;
 
 type Client = hyper::client::Client<HttpConnector, Body>;
 
 const X_API_KEY: &str = "X-API-Key";
-const ACTUAL_API_KEY: &str = "secret";
 
 #[tokio::main]
 async fn main() {
-    let mut m = HashMap::new();
-    m.insert("mysecret", "example.com");
-    KEY_TO_ZONE.set(m).unwrap();
-
     let client = Client::new();
+    let config = read_config().unwrap();
 
     let app = Router::new()
         .route(
@@ -45,7 +39,7 @@ async fn main() {
             any(handle_zone_root),
         )
         .fallback(handler)
-        .with_state(client);
+        .with_state((client, config));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
     println!("reverse proxy listening on {}", addr);
@@ -55,7 +49,10 @@ async fn main() {
         .unwrap();
 }
 
-async fn handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
+async fn handler(
+    State((client, _)): State<(Client, Config)>,
+    mut req: Request<Body>,
+) -> Response<Body> {
     let path = req.uri().path();
 
     let path_query = req
@@ -72,23 +69,24 @@ async fn handler(State(client): State<Client>, mut req: Request<Body>) -> Respon
 }
 
 async fn handle_zone_root(
-    State(client): State<Client>,
+    State((client, config)): State<(Client, Config)>,
     Path(zone_id): Path<String>,
     req: Request<Body>,
 ) -> Response<Body> {
-    handle_zone(client, zone_id, None, req).await
+    handle_zone(client, config, zone_id, None, req).await
 }
 
 async fn handle_zone_path(
-    State(client): State<Client>,
+    State((client, config)): State<(Client, Config)>,
     Path((zone_id, zone_path)): Path<(String, String)>,
     req: Request<Body>,
 ) -> Response<Body> {
-    handle_zone(client, zone_id, Some(zone_path), req).await
+    handle_zone(client, config, zone_id, Some(zone_path), req).await
 }
 
 async fn handle_zone(
     client: Client,
+    config: Config,
     zone_id: String,
     _zone_path: Option<String>,
     mut req: Request<Body>,
@@ -99,7 +97,7 @@ async fn handle_zone(
         .headers()
         .get(X_API_KEY)
         .and_then(|v| v.to_str().ok())
-        .and_then(|key| KEY_TO_ZONE.get().unwrap().get(key));
+        .and_then(|key| config.key_to_zone.get(key));
 
     // the zone in PowerDNS-Api requests may end with a '.' but is not required to end with a '.'
     // so let's normalize it here
@@ -125,7 +123,7 @@ async fn handle_zone(
     if replace_key.unwrap_or(false) {
         req.headers_mut().remove(X_API_KEY);
         req.headers_mut()
-            .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
+            .insert(X_API_KEY, (&config.api_key).try_into().unwrap());
     }
 
     client.request(req).await.unwrap()
