@@ -1,4 +1,4 @@
 provider "powerdns" {
-  api_key    = "secret"
-  server_url = "http://localhost:8081"
+  api_key    = "mysecret"
+  server_url = "http://localhost:4000"
 }

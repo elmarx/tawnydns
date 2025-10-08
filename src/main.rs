@@ -43,7 +43,9 @@ async fn main() {
             "/api/v1/servers/localhost/zones/:zone_id",
             any(handle_zone_root),
         )
-        .fallback(handler)
+        .route("/api/v1/servers", any(authorized_proxy_handler))
+        .route("/api/v1/servers/:server", any(authorized_proxy_handler))
+        .fallback(proxy_handler)
         .with_state(client);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
@@ -54,7 +56,7 @@ async fn main() {
         .unwrap();
 }
 
-async fn handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
+async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
     let path = req.uri().path();
 
     let path_query = req
@@ -64,6 +66,30 @@ async fn handler(State(client): State<Client>, mut req: Request<Body>) -> Respon
         .unwrap_or(path);
 
     let uri = format!("http://127.0.0.1:8081{}", path_query);
+
+    *req.uri_mut() = Uri::try_from(uri).unwrap();
+
+    client.request(req).await.unwrap()
+}
+
+async fn authorized_proxy_handler(
+    State(client): State<Client>,
+    mut req: Request<Body>,
+) -> Response<Body> {
+    let path = req.uri().path();
+
+    let path_query = req
+        .uri()
+        .path_and_query()
+        .map(|v| v.as_str())
+        .unwrap_or(path);
+
+    let uri = format!("http://127.0.0.1:8081{}", path_query);
+
+    // TODO: check if X-API-Key is ANY valid api key
+    req.headers_mut().remove(X_API_KEY);
+    req.headers_mut()
+        .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
