@@ -7,21 +7,22 @@
 //! cargo run -p example-reverse-proxy
 //! ```
 
+use axum::body::Body;
 use axum::extract::Path;
+use axum::response::IntoResponse;
 use axum::routing::any;
 use axum::{
     Router,
     extract::State,
     http::{Request, Response, uri::Uri},
 };
-use hyper::{Body, client::HttpConnector};
+use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::OnceLock;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-type Client = hyper::client::Client<HttpConnector, Body>;
+type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
 const X_API_KEY: &str = "X-API-Key";
 const ACTUAL_API_KEY: &str = "secret";
@@ -32,28 +33,27 @@ async fn main() {
     m.insert("mysecret", "example.com");
     KEY_TO_ZONE.set(m).unwrap();
 
-    let client = Client::new();
+    let client = hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
+        .build(HttpConnector::new());
 
     let app = Router::new()
         .route(
-            "/api/v1/servers/localhost/zones/:zone_id/*path",
+            "/api/v1/servers/localhost/zones/{zone_id}/{*path}",
             any(handle_zone_path),
         )
         .route(
-            "/api/v1/servers/localhost/zones/:zone_id",
+            "/api/v1/servers/localhost/zones/{zone_id}",
             any(handle_zone_root),
         )
         .route("/api/v1/servers", any(authorized_proxy_handler))
-        .route("/api/v1/servers/:server", any(authorized_proxy_handler))
+        .route("/api/v1/servers/{server}", any(authorized_proxy_handler))
         .fallback(proxy_handler)
         .with_state(client);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
-    println!("reverse proxy listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
         .await
         .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
 async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
@@ -69,7 +69,7 @@ async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> 
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
-    client.request(req).await.unwrap()
+    client.request(req).await.unwrap().into_response()
 }
 
 async fn authorized_proxy_handler(
@@ -93,7 +93,7 @@ async fn authorized_proxy_handler(
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
-    client.request(req).await.unwrap()
+    client.request(req).await.unwrap().into_response()
 }
 
 async fn handle_zone_root(
@@ -153,5 +153,5 @@ async fn handle_zone(
             .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
     }
 
-    client.request(req).await.unwrap()
+    client.request(req).await.unwrap().into_response()
 }
