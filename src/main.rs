@@ -9,18 +9,19 @@
 
 use axum::body::Body;
 use axum::extract::Path;
-use axum::response::IntoResponse;
 use axum::routing::{any, post};
 use axum::{
     Router,
     extract::State,
-    http::{Request, Response, uri::Uri},
+    http::{Request, Response},
 };
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
+
+mod proxy;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
@@ -51,11 +52,14 @@ async fn main() {
         )
         .route(
             "/api/v1/servers/localhost/zones",
-            post(handle_create_zone).fallback(proxy_handler),
+            post(handle_create_zone).fallback(proxy::proxy_handler),
         )
-        .route("/api/v1/servers", any(authorized_proxy_handler))
-        .route("/api/v1/servers/{server}", any(authorized_proxy_handler))
-        .fallback(proxy_handler)
+        .route("/api/v1/servers", any(proxy::authorized_proxy_handler))
+        .route(
+            "/api/v1/servers/{server}",
+            any(proxy::authorized_proxy_handler),
+        )
+        .fallback(proxy::proxy_handler)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -67,46 +71,6 @@ async fn main() {
         .await
         .unwrap();
     axum::serve(listener, app).await.unwrap();
-}
-
-/// handler that just proxies any request
-async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
-    let path = req.uri().path();
-
-    let path_query = req
-        .uri()
-        .path_and_query()
-        .map_or(path, axum::http::uri::PathAndQuery::as_str);
-
-    let uri = format!("http://127.0.0.1:8081{path_query}");
-
-    *req.uri_mut() = Uri::try_from(uri).unwrap();
-
-    client.request(req).await.unwrap().into_response()
-}
-
-/// handler that inserts the actual API key
-async fn authorized_proxy_handler(
-    State(client): State<Client>,
-    mut req: Request<Body>,
-) -> Response<Body> {
-    let path = req.uri().path();
-
-    let path_query = req
-        .uri()
-        .path_and_query()
-        .map_or(path, axum::http::uri::PathAndQuery::as_str);
-
-    let uri = format!("http://127.0.0.1:8081{path_query}");
-
-    // TODO: check if X-API-Key is ANY valid api key
-    req.headers_mut().remove(X_API_KEY);
-    req.headers_mut()
-        .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
-
-    *req.uri_mut() = Uri::try_from(uri).unwrap();
-
-    client.request(req).await.unwrap().into_response()
 }
 
 async fn handle_zone_root(
@@ -126,16 +90,16 @@ async fn handle_zone_path(
 }
 async fn handle_create_zone(State(client): State<Client>, req: Request<Body>) -> Response<Body> {
     // TODO: filter the request
-    authorized_proxy_handler(State(client), req).await
+    proxy::authorized_proxy_handler(State(client), req).await
 }
 
 async fn handle_zone(
     client: Client,
     zone_id: String,
     _zone_path: Option<String>,
-    mut req: Request<Body>,
+    req: Request<Body>,
 ) -> Response<Body> {
-    let path = req.uri().path();
+    let _path = req.uri().path();
 
     let allowed_zone = req
         .headers()
@@ -151,23 +115,12 @@ async fn handle_zone(
         &zone_id
     };
 
-    let path_query = req
-        .uri()
-        .path_and_query()
-        .map_or(path, axum::http::uri::PathAndQuery::as_str);
-
-    let uri = format!("http://127.0.0.1:8081{path_query}");
-
-    *req.uri_mut() = Uri::try_from(uri).unwrap();
-
     // if the current zone_id matches the allowed_zone, then replace the key.
-    let replace_key = allowed_zone.map(|allowed_zone| *allowed_zone == zone_id);
-    // if the allowed_zone/replace_key is empty, then do NOT replace the key (maybe the original key is the actual API key)
-    if replace_key.unwrap_or(false) {
-        req.headers_mut().remove(X_API_KEY);
-        req.headers_mut()
-            .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
-    }
+    let replace_key = allowed_zone.is_none_or(|allowed_zone| *allowed_zone == zone_id);
 
-    client.request(req).await.unwrap().into_response()
+    if replace_key {
+        proxy::authorized_proxy_handler(State(client), req).await
+    } else {
+        proxy::proxy_handler(State(client), req).await
+    }
 }
