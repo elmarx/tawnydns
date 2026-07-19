@@ -109,11 +109,7 @@ async fn handle_zone(
 
     // the zone in PowerDNS-Api requests may end with a '.' but is not required to end with a '.'
     // so let's normalize it here
-    let zone_id = if zone_id.ends_with('.') {
-        zone_id.split_at(zone_id.len() - 1).0
-    } else {
-        &zone_id
-    };
+    let zone_id = zone_id.strip_suffix('.').unwrap_or(&zone_id);
 
     // if the current zone_id matches the allowed_zone, then replace the key.
     let replace_key = allowed_zone.is_none_or(|allowed_zone| *allowed_zone == zone_id);
