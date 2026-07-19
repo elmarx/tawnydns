@@ -62,10 +62,9 @@ async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> 
     let path_query = req
         .uri()
         .path_and_query()
-        .map(|v| v.as_str())
-        .unwrap_or(path);
+        .map_or(path, axum::http::uri::PathAndQuery::as_str);
 
-    let uri = format!("http://127.0.0.1:8081{}", path_query);
+    let uri = format!("http://127.0.0.1:8081{path_query}");
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
@@ -81,10 +80,9 @@ async fn authorized_proxy_handler(
     let path_query = req
         .uri()
         .path_and_query()
-        .map(|v| v.as_str())
-        .unwrap_or(path);
+        .map_or(path, axum::http::uri::PathAndQuery::as_str);
 
-    let uri = format!("http://127.0.0.1:8081{}", path_query);
+    let uri = format!("http://127.0.0.1:8081{path_query}");
 
     // TODO: check if X-API-Key is ANY valid api key
     req.headers_mut().remove(X_API_KEY);
@@ -137,10 +135,9 @@ async fn handle_zone(
     let path_query = req
         .uri()
         .path_and_query()
-        .map(|v| v.as_str())
-        .unwrap_or(path);
+        .map_or(path, axum::http::uri::PathAndQuery::as_str);
 
-    let uri = format!("http://127.0.0.1:8081{}", path_query);
+    let uri = format!("http://127.0.0.1:8081{path_query}");
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
