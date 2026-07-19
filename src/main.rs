@@ -10,7 +10,7 @@
 use axum::body::Body;
 use axum::extract::Path;
 use axum::response::IntoResponse;
-use axum::routing::any;
+use axum::routing::{any, post};
 use axum::{
     Router,
     extract::State,
@@ -49,6 +49,10 @@ async fn main() {
             "/api/v1/servers/localhost/zones/{zone_id}",
             any(handle_zone_root),
         )
+        .route(
+            "/api/v1/servers/localhost/zones",
+            post(handle_create_zone).fallback(proxy_handler),
+        )
         .route("/api/v1/servers", any(authorized_proxy_handler))
         .route("/api/v1/servers/{server}", any(authorized_proxy_handler))
         .fallback(proxy_handler)
@@ -65,6 +69,7 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+/// handler that just proxies any request
 async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
     let path = req.uri().path();
 
@@ -80,6 +85,7 @@ async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> 
     client.request(req).await.unwrap().into_response()
 }
 
+/// handler that inserts the actual API key
 async fn authorized_proxy_handler(
     State(client): State<Client>,
     mut req: Request<Body>,
@@ -117,6 +123,10 @@ async fn handle_zone_path(
     req: Request<Body>,
 ) -> Response<Body> {
     handle_zone(client, zone_id, Some(zone_path), req).await
+}
+async fn handle_create_zone(State(client): State<Client>, req: Request<Body>) -> Response<Body> {
+    // TODO: filter the request
+    authorized_proxy_handler(State(client), req).await
 }
 
 async fn handle_zone(
