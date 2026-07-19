@@ -19,6 +19,8 @@ use axum::{
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use tower_http::trace::TraceLayer;
+use tracing::Level;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
@@ -29,6 +31,8 @@ const ACTUAL_API_KEY: &str = "secret";
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt().init();
+
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
     KEY_TO_ZONE.set(m).unwrap();
@@ -48,6 +52,11 @@ async fn main() {
         .route("/api/v1/servers", any(authorized_proxy_handler))
         .route("/api/v1/servers/{server}", any(authorized_proxy_handler))
         .fallback(proxy_handler)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(tower_http::trace::DefaultOnResponse::new().level(Level::INFO)),
+        )
         .with_state(client);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
