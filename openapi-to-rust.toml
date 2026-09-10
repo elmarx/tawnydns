@@ -1,0 +1,11 @@
+# Created by openapi-to-rust init.
+[generator]
+spec_path = "pdns/authoritative-api-openapi.yaml"
+output_dir = "pdns/src/generated"
+module_name = "pdns"
+
+[features]
+enable_async_client = true
+
+[http_client.tracing]
+enabled = true
