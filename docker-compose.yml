@@ -1,7 +1,7 @@
 ---
 services:
   pdns:
-    image: powerdns/pdns-auth-47
+    image: powerdns/pdns-auth-51
     environment:
       - PDNS_AUTH_API_KEY=secret
     cap_add:
