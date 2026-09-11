@@ -32,7 +32,9 @@ const ACTUAL_API_KEY: &str = "secret";
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
