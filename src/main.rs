@@ -10,12 +10,14 @@
 use axum::Router;
 use axum::body::Body;
 use axum::routing::{any, post};
+use clap::Parser;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 
+mod cli;
 mod handler;
 mod proxy;
 
@@ -31,6 +33,8 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+
+    cli::Cli::parse();
 
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
