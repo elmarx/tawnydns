@@ -1,38 +1,20 @@
 use axum::Router;
-use axum::body::Body;
 use axum::routing::{any, post};
 use http::HeaderValue;
-use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
+use types::TawnyState;
 
-use crate::{handler, proxy};
-
-pub type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
+mod constants;
+mod handler;
+mod proxy;
+mod types;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-#[derive(Clone)]
-pub struct TawnyState {
-    pub client: Client,
-    pub pdns_api_key: HeaderValue,
-}
-
-impl TawnyState {
-    pub fn new(pdns_api_key: HeaderValue) -> TawnyState {
-        let client = hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
-            .build(HttpConnector::new());
-
-        Self {
-            client,
-            pdns_api_key,
-        }
-    }
-}
-
-pub async fn server(pdns_api_key: HeaderValue) {
+pub async fn run(pdns_api_key: HeaderValue) {
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
     KEY_TO_ZONE.set(m).unwrap();

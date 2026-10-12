@@ -1,5 +1,5 @@
-use crate::X_API_KEY;
-use crate::server::TawnyState;
+use crate::server::constants::X_API_KEY;
+use crate::server::types::TawnyState;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, Response, Uri};

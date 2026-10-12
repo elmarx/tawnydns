@@ -1,5 +1,6 @@
-use crate::server::TawnyState;
-use crate::{KEY_TO_ZONE, X_API_KEY, proxy};
+use crate::server::constants::X_API_KEY;
+use crate::server::types::TawnyState;
+use crate::server::{KEY_TO_ZONE, proxy};
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{Request, Response};
