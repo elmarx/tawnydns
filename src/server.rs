@@ -1,11 +1,9 @@
-use axum::Router;
 use axum::routing::{any, post};
+use axum::{Router, middleware};
 use eros::{AnyError, Context};
 use http::HeaderValue;
 use jsonwebtoken::DecodingKey;
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 use types::TawnyState;
@@ -16,13 +14,7 @@ mod handler;
 mod proxy;
 mod types;
 
-static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-
 pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result<(), AnyError> {
-    let mut m = HashMap::new();
-    m.insert("mysecret", "example.com");
-    KEY_TO_ZONE.set(m).unwrap();
-
     let public_key = tokio::fs::read(&public_key)
         .await
         .context("read public key")?;
@@ -46,6 +38,10 @@ pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result
         .route("/api/v1/servers", any(proxy::sudo_proxy))
         .route("/api/v1/servers/{server}", any(proxy::sudo_proxy))
         .fallback(proxy::passthrough)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            authenticate::authenticate_middleware,
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))
