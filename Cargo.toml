@@ -7,10 +7,10 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8.9" }
-hyper-util = { version = "0.1.20", features = ["client-legacy"] }
+hyper-util = { version = "0.1.21", features = ["client-legacy"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.150"
-tokio = { version = "1.53.0", features = ["full"] }
+serde_json = "1.0.154"
+tokio = { version = "1.53.2", features = ["full"] }
 tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
