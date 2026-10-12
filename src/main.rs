@@ -6,6 +6,7 @@ use eros::{AnyError, Context};
 mod cli;
 mod config;
 mod keygen;
+mod pdns_api;
 mod server;
 mod token;
 

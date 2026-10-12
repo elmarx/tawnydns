@@ -5,3 +5,6 @@
 private.key
 tawnydns.pub
 example.com.jwt
+
+# api fetched from https://github.com/PowerDNS/pdns/blob/master/docs/http-api/openapi/authoritative-api-openapi.yaml
+authoritative-api-openapi.yaml

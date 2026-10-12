@@ -1494,6 +1494,7 @@ dependencies = [
  "http",
  "hyper-util",
  "jsonwebtoken",
+ "percent-encoding",
  "rand_core 0.10.1",
  "serde",
  "serde_json",

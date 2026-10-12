@@ -1,0 +1,2 @@
+# valid (CamelCase-) identifiers to NOT mark as code in doc-comments: https://rust-lang.github.io/rust-clippy/master/index.html#doc_markdown
+doc-valid-idents = ["PowerDNS", ".."]
