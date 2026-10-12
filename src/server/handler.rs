@@ -23,7 +23,7 @@ pub async fn zone_path(
 
 pub async fn create_zone(State(state): State<TawnyState>, req: Request<Body>) -> Response<Body> {
     // TODO: filter the request
-    proxy::authorized_proxy_handler(State(state), req).await
+    proxy::sudo_proxy(State(state), req).await
 }
 
 async fn handle_zone(
@@ -48,7 +48,7 @@ async fn handle_zone(
     let replace_key = allowed_zone.is_none_or(|allowed_zone| *allowed_zone == zone_id);
 
     if replace_key {
-        proxy::authorized_proxy_handler(State(state), req).await
+        proxy::sudo_proxy(State(state), req).await
     } else {
         proxy::passthrough(State(state), req).await
     }

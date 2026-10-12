@@ -43,11 +43,8 @@ pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result
             "/api/v1/servers/localhost/zones",
             post(handler::create_zone).fallback(proxy::passthrough),
         )
-        .route("/api/v1/servers", any(proxy::authorized_proxy_handler))
-        .route(
-            "/api/v1/servers/{server}",
-            any(proxy::authorized_proxy_handler),
-        )
+        .route("/api/v1/servers", any(proxy::sudo_proxy))
+        .route("/api/v1/servers/{server}", any(proxy::sudo_proxy))
         .fallback(proxy::passthrough)
         .layer(
             TraceLayer::new_for_http()
