@@ -8,6 +8,7 @@
 //! ```
 use axum::body::Body;
 use clap::Parser;
+use eros::{AnyError, Context};
 use hyper_util::client::legacy::connect::HttpConnector;
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -26,7 +27,7 @@ const X_API_KEY: &str = "X-API-Key";
 const ACTUAL_API_KEY: &str = "secret";
 
 #[tokio::main]
-async fn main() {
+async fn main() -> eros::Result<(), AnyError> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -40,7 +41,9 @@ async fn main() {
         cli::Cmd::Keygen {
             private_key,
             public_key,
-        } => keygen::keygen(private_key, public_key),
+        } => keygen::keygen(private_key, public_key).context("keygen")?,
         cli::Cmd::Token { .. } => todo!(),
     }
+
+    Ok(())
 }

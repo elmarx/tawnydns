@@ -1,3 +1,6 @@
 .idea
 .direnv
 /target
+
+private.key
+tawnydns.pub
