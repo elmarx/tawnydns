@@ -1,5 +1,7 @@
 use axum::Router;
+use axum::body::Body;
 use axum::routing::{any, post};
+use http::HeaderValue;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -8,15 +10,33 @@ use tracing::Level;
 
 use crate::{handler, proxy};
 
+pub type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
+
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-pub async fn server() {
+#[derive(Clone)]
+pub struct TawnyState {
+    pub client: Client,
+    pub pdns_api_key: HeaderValue,
+}
+
+impl TawnyState {
+    pub fn new(pdns_api_key: HeaderValue) -> TawnyState {
+        let client = hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
+            .build(HttpConnector::new());
+
+        Self {
+            client,
+            pdns_api_key,
+        }
+    }
+}
+
+pub async fn server(pdns_api_key: HeaderValue) {
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
     KEY_TO_ZONE.set(m).unwrap();
-
-    let client = hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
-        .build(HttpConnector::new());
+    let state = TawnyState::new(pdns_api_key);
 
     let app = Router::new()
         .route(
@@ -42,7 +62,7 @@ pub async fn server() {
                 .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(tower_http::trace::DefaultOnResponse::new().level(Level::INFO)),
         )
-        .with_state(client);
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
         .await

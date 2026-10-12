@@ -7,14 +7,14 @@
 //! cargo run -p example-reverse-proxy
 //! ```
 use crate::cli::TokenCmd;
-use axum::body::Body;
+use crate::config::resolve_pdns_api_key;
 use clap::Parser;
 use eros::{AnyError, Context};
-use hyper_util::client::legacy::connect::HttpConnector;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 mod cli;
+mod config;
 mod handler;
 mod keygen;
 mod proxy;
@@ -23,11 +23,7 @@ mod token;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
-
 const X_API_KEY: &str = "X-API-Key";
-const ACTUAL_API_KEY: &str = "secret";
-
 #[tokio::main]
 async fn main() -> eros::Result<(), AnyError> {
     tracing_subscriber::fmt()
@@ -37,8 +33,9 @@ async fn main() -> eros::Result<(), AnyError> {
     let args = cli::Cli::parse();
 
     match args.command {
-        cli::Cmd::Server => {
-            server::server().await;
+        cli::Cmd::Server { pdns_api_key_file } => {
+            let pdns_api_key = resolve_pdns_api_key(pdns_api_key_file)?;
+            server::server(pdns_api_key).await;
         }
         cli::Cmd::Keygen {
             private_key,

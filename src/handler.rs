@@ -1,31 +1,32 @@
-use crate::{Client, KEY_TO_ZONE, X_API_KEY, proxy};
+use crate::server::TawnyState;
+use crate::{KEY_TO_ZONE, X_API_KEY, proxy};
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{Request, Response};
 
 pub async fn zone_root(
-    State(client): State<Client>,
+    State(state): State<TawnyState>,
     Path(zone_id): Path<String>,
     req: Request<Body>,
 ) -> Response<Body> {
-    handle_zone(client, zone_id, None, req).await
+    handle_zone(state, zone_id, None, req).await
 }
 
 pub async fn zone_path(
-    State(client): State<Client>,
+    State(state): State<TawnyState>,
     Path((zone_id, zone_path)): Path<(String, String)>,
     req: Request<Body>,
 ) -> Response<Body> {
-    handle_zone(client, zone_id, Some(zone_path), req).await
+    handle_zone(state, zone_id, Some(zone_path), req).await
 }
 
-pub async fn create_zone(State(client): State<Client>, req: Request<Body>) -> Response<Body> {
+pub async fn create_zone(State(state): State<TawnyState>, req: Request<Body>) -> Response<Body> {
     // TODO: filter the request
-    proxy::authorized_proxy_handler(State(client), req).await
+    proxy::authorized_proxy_handler(State(state), req).await
 }
 
 async fn handle_zone(
-    client: Client,
+    state: TawnyState,
     zone_id: String,
     _zone_path: Option<String>,
     req: Request<Body>,
@@ -46,8 +47,8 @@ async fn handle_zone(
     let replace_key = allowed_zone.is_none_or(|allowed_zone| *allowed_zone == zone_id);
 
     if replace_key {
-        proxy::authorized_proxy_handler(State(client), req).await
+        proxy::authorized_proxy_handler(State(state), req).await
     } else {
-        proxy::proxy_handler(State(client), req).await
+        proxy::proxy_handler(State(state), req).await
     }
 }

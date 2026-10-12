@@ -1,11 +1,12 @@
-use crate::{ACTUAL_API_KEY, Client, X_API_KEY};
+use crate::X_API_KEY;
+use crate::server::TawnyState;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, Response, Uri};
 use axum::response::IntoResponse;
 
 /// handler that just proxies any request
-pub async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>) -> Response<Body> {
+pub async fn proxy_handler(State(s): State<TawnyState>, mut req: Request<Body>) -> Response<Body> {
     let path = req.uri().path();
 
     let path_query = req
@@ -17,12 +18,12 @@ pub async fn proxy_handler(State(client): State<Client>, mut req: Request<Body>)
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
-    client.request(req).await.unwrap().into_response()
+    s.client.request(req).await.unwrap().into_response()
 }
 
 /// handler that inserts the actual API key
 pub async fn authorized_proxy_handler(
-    State(client): State<Client>,
+    State(s): State<TawnyState>,
     mut req: Request<Body>,
 ) -> Response<Body> {
     let path = req.uri().path();
@@ -35,10 +36,9 @@ pub async fn authorized_proxy_handler(
     let uri = format!("http://127.0.0.1:8081{path_query}");
 
     req.headers_mut().remove(X_API_KEY);
-    req.headers_mut()
-        .insert(X_API_KEY, ACTUAL_API_KEY.try_into().unwrap());
+    req.headers_mut().insert(X_API_KEY, s.pdns_api_key);
 
     *req.uri_mut() = Uri::try_from(uri).unwrap();
 
-    client.request(req).await.unwrap().into_response()
+    s.client.request(req).await.unwrap().into_response()
 }

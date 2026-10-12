@@ -9,7 +9,10 @@ pub struct Cli {
 
 #[derive(clap::Subcommand)]
 pub enum Cmd {
-    Server,
+    Server {
+        #[arg(long, env = "PDNS_API_KEY_FILE")]
+        pdns_api_key_file: Option<PathBuf>,
+    },
     Keygen {
         #[arg(default_value = "private.key")]
         private_key: PathBuf,
