@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 mod cli;
 mod handler;
+mod keygen;
 mod proxy;
 mod server;
 
@@ -36,7 +37,10 @@ async fn main() {
         cli::Cmd::Server => {
             server::server().await;
         }
-        cli::Cmd::Keygen => todo!(),
+        cli::Cmd::Keygen {
+            private_key,
+            public_key,
+        } => keygen::keygen(private_key, public_key),
         cli::Cmd::Token { .. } => todo!(),
     }
 }
