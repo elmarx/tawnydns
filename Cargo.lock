@@ -1487,6 +1487,7 @@ name = "tawnydns"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "clap",
  "ed25519-dalek 3.0.0",
  "eros",

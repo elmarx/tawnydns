@@ -1,4 +1,13 @@
+use crate::pdns_api::Route;
+use crate::policy::rule::Rule;
+use crate::policy::{Denied, Grant};
 use crate::token::Claim;
+
+#[expect(dead_code)]
+/// Decides what a token holder may do with a request. Admin never gets here.
+pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
+    Rule::from(route).apply(claim, route.zone())
+}
 
 impl Claim {
     #[cfg_attr(not(test), expect(dead_code))]
