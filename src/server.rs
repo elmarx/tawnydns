@@ -7,6 +7,7 @@ use tower_http::trace::TraceLayer;
 use tracing::Level;
 use types::TawnyState;
 
+mod authenticate;
 mod constants;
 mod handler;
 mod proxy;
@@ -31,14 +32,14 @@ pub async fn run(pdns_api_key: HeaderValue) {
         )
         .route(
             "/api/v1/servers/localhost/zones",
-            post(handler::create_zone).fallback(proxy::proxy_handler),
+            post(handler::create_zone).fallback(proxy::passthrough),
         )
         .route("/api/v1/servers", any(proxy::authorized_proxy_handler))
         .route(
             "/api/v1/servers/{server}",
             any(proxy::authorized_proxy_handler),
         )
-        .fallback(proxy::proxy_handler)
+        .fallback(proxy::passthrough)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))

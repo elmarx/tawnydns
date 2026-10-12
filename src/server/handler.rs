@@ -50,6 +50,6 @@ async fn handle_zone(
     if replace_key {
         proxy::authorized_proxy_handler(State(state), req).await
     } else {
-        proxy::proxy_handler(State(state), req).await
+        proxy::passthrough(State(state), req).await
     }
 }
