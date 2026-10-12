@@ -13,7 +13,7 @@ pub static VALIDATION: LazyLock<jsonwebtoken::Validation> = LazyLock::new(|| {
     validation
 });
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Claim {
     #[serde(rename = "z")]
     pub zones: Vec<String>,

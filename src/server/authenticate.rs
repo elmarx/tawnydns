@@ -9,6 +9,7 @@ use http::{HeaderMap, Response};
 use jsonwebtoken::TokenData;
 use subtle::ConstantTimeEq;
 
+#[derive(Clone)]
 pub enum Principal {
     Admin,
     Token(Claim),
@@ -22,6 +23,7 @@ pub enum Error {
     InvalidApiKey(#[from] jsonwebtoken::errors::Error),
     #[error("Multiple X-API-Key headers given")]
     MultipleHeadersGiven,
+    // TODO: add more detailed error types (NotAJwt, by calling decode_header first) etc.
 }
 
 fn identify(headers: &HeaderMap, s: &TawnyState) -> Result<Principal, Error> {
@@ -34,6 +36,7 @@ fn identify(headers: &HeaderMap, s: &TawnyState) -> Result<Principal, Error> {
         Some(api_key) if api_key.as_bytes().ct_eq(s.pdns_api_key.as_bytes()).into() => {
             Ok(Principal::Admin)
         }
+        // TODO: return more detailed error types (NotAJwt, by calling decode_header first) etc.
         Some(api_key) => match jsonwebtoken::decode::<Claim>(api_key, &s.public_key, &VALIDATION) {
             Ok(TokenData { claims, .. }) => Ok(Principal::Token(claims)),
             Err(e) => Err(Error::InvalidApiKey(e)),
@@ -44,19 +47,23 @@ fn identify(headers: &HeaderMap, s: &TawnyState) -> Result<Principal, Error> {
 
 pub async fn authenticate_middleware(
     State(s): State<TawnyState>,
-    req: Request,
-    _next: Next,
+    mut req: Request,
+    next: Next,
 ) -> Response<Body> {
     let principal = identify(req.headers(), &s);
 
     match principal {
         Ok(Principal::Admin) => proxy::passthrough(State(s), req).await,
-        Ok(Principal::Token(_token)) => {
-            todo!("next")
+        Ok(Principal::Token(claim)) => {
+            req.extensions_mut().insert(claim);
+            next.run(req).await
         }
-        Err(_e) => {
-            todo!("401")
-        }
+        // TODO: based on extended error types, log more detailed error messages
+        Err(_e) => Response::builder()
+            .status(http::StatusCode::UNAUTHORIZED)
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"error":"Unauthorized"}"#))
+            .unwrap(),
     }
 }
 
@@ -341,6 +348,103 @@ mod tests {
             let actual = String::from_utf8(actual.to_vec()).unwrap();
             let expected = format!("upstream:{PDNS_API_KEY}:{PATH_QUERY}");
             assert_eq!(actual, expected);
+        }
+
+        async fn body_string(response: Response<Body>) -> String {
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            String::from_utf8(body.to_vec()).unwrap()
+        }
+
+        #[tokio::test]
+        async fn missing_key_is_401_without_calling_next() {
+            let sample = request(None);
+
+            let actual = app(state().0).oneshot(sample).await.unwrap();
+
+            assert_eq!(actual.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        #[tokio::test]
+        async fn rejections_are_401_json_errors() {
+            let (_, other_key) = state();
+            let (state, _) = state();
+            let samples = [
+                request(None),
+                request(Some("garbage")),
+                request(Some(&sign(&other_key, &["example.com."]))),
+            ];
+
+            for sample in samples {
+                let actual = app(state.clone()).oneshot(sample).await.unwrap();
+
+                assert_eq!(actual.status(), StatusCode::UNAUTHORIZED);
+                let content_type = actual.headers().get(http::header::CONTENT_TYPE);
+                assert_eq!(content_type.unwrap(), "application/json");
+                let actual = body_string(actual).await;
+                let actual: serde_json::Value = serde_json::from_str(&actual).unwrap();
+                assert!(actual["error"].is_string());
+            }
+        }
+
+        #[tokio::test]
+        async fn error_body_does_not_reveal_why_a_token_was_rejected() {
+            let (_, other_key) = state();
+            let (state, _) = state();
+            let samples = [
+                request(Some("garbage")),
+                request(Some(&sign(&other_key, &["example.com."]))),
+            ];
+
+            let mut actual = Vec::new();
+            for sample in samples {
+                let response = app(state.clone()).oneshot(sample).await.unwrap();
+                actual.push(body_string(response).await);
+            }
+
+            assert_eq!(actual[0], actual[1]);
+        }
+
+        #[tokio::test]
+        async fn multiple_api_key_headers_are_401() {
+            let mut sample = request(Some(PDNS_API_KEY));
+            sample
+                .headers_mut()
+                .append(X_API_KEY, HeaderValue::from_static(PDNS_API_KEY));
+
+            let actual = app(state().0).oneshot(sample).await.unwrap();
+
+            assert_eq!(actual.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        #[tokio::test]
+        async fn valid_token_calls_next() {
+            let (state, encoding_key) = state();
+            let sample = request(Some(&sign(&encoding_key, &["example.com."])));
+
+            let actual = app(state).oneshot(sample).await.unwrap();
+
+            assert_eq!(actual.status(), StatusCode::IM_A_TEAPOT);
+        }
+
+        #[tokio::test]
+        async fn valid_token_hands_principal_to_next() {
+            let (state, encoding_key) = state();
+            let sample = request(Some(&sign(&encoding_key, &["example.com."])));
+            let app = Router::new()
+                .fallback(
+                    |axum::Extension(claim): axum::Extension<Claim>| async move {
+                        claim.zones.join(",")
+                    },
+                )
+                .layer(middleware::from_fn_with_state(
+                    state,
+                    authenticate_middleware,
+                ));
+
+            let actual = app.oneshot(sample).await.unwrap();
+
+            let actual = body_string(actual).await;
+            assert_eq!(actual, "example.com.");
         }
     }
 }
