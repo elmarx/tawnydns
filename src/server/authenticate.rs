@@ -53,17 +53,27 @@ pub async fn authenticate_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::keygen::generate;
     use axum::Router;
     use axum::body::to_bytes;
     use axum::middleware;
     use http::{HeaderValue, StatusCode};
+    use jsonwebtoken::EncodingKey;
     use tower::ServiceExt;
 
     const PDNS_API_KEY: &str = "actual-key";
     const PATH_QUERY: &str = "/api/v1/servers/localhost/zones?zone=example.com.";
 
-    fn state() -> TawnyState {
-        TawnyState::new(HeaderValue::from_static(PDNS_API_KEY))
+    fn state() -> (TawnyState, EncodingKey) {
+        let (private_key, public_key) = generate().unwrap();
+
+        let decoding_key = jsonwebtoken::DecodingKey::from_ed_pem(public_key.as_bytes()).unwrap();
+        let encoding_key = jsonwebtoken::EncodingKey::from_ed_pem(private_key.as_bytes()).unwrap();
+
+        (
+            TawnyState::new(HeaderValue::from_static(PDNS_API_KEY), decoding_key),
+            encoding_key,
+        )
     }
 
     fn headers(name: &str, value: &str) -> HeaderMap {
@@ -82,7 +92,7 @@ mod tests {
         fn actual_key_is_admin() {
             let sample = headers(X_API_KEY, PDNS_API_KEY);
 
-            let actual = identify(&sample, &state());
+            let actual = identify(&sample, &state().0);
 
             assert!(matches!(actual, Ok(Principal::Admin)));
         }
@@ -91,7 +101,7 @@ mod tests {
         fn missing_key_is_rejected() {
             let sample = HeaderMap::new();
 
-            let actual = identify(&sample, &state());
+            let actual = identify(&sample, &state().0);
 
             assert!(matches!(actual, Err(Error::NoApiKeyGiven)));
         }
@@ -100,7 +110,7 @@ mod tests {
         fn header_name_is_case_insensitive() {
             let sample = headers("x-aPi-kEy", PDNS_API_KEY);
 
-            let actual = identify(&sample, &state());
+            let actual = identify(&sample, &state().0);
 
             assert!(matches!(actual, Ok(Principal::Admin)));
         }
@@ -144,7 +154,7 @@ mod tests {
 
         #[tokio::test]
         async fn actual_key_is_forwarded_unchanged_without_calling_next() {
-            let mut sample = state();
+            let mut sample = state().0;
             sample.pdns_url = mock_upstream().await;
 
             let actual = app(sample)

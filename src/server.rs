@@ -1,7 +1,10 @@
 use axum::Router;
 use axum::routing::{any, post};
+use eros::{AnyError, Context};
 use http::HeaderValue;
+use jsonwebtoken::DecodingKey;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
@@ -15,11 +18,17 @@ mod types;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
-pub async fn run(pdns_api_key: HeaderValue) {
+pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result<(), AnyError> {
     let mut m = HashMap::new();
     m.insert("mysecret", "example.com");
     KEY_TO_ZONE.set(m).unwrap();
-    let state = TawnyState::new(pdns_api_key);
+
+    let public_key = tokio::fs::read(&public_key)
+        .await
+        .context("read public key")?;
+    let public_key = DecodingKey::from_ed_pem(&public_key).context("decode public key")?;
+
+    let state = TawnyState::new(pdns_api_key, public_key);
 
     let app = Router::new()
         .route(
@@ -49,6 +58,9 @@ pub async fn run(pdns_api_key: HeaderValue) {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
         .await
-        .unwrap();
-    axum::serve(listener, app).await.unwrap();
+        .context("binding tcp listener")?;
+
+    axum::serve(listener, app).await.context("axum serve")?;
+
+    Ok(())
 }

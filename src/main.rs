@@ -18,9 +18,12 @@ async fn main() -> eros::Result<(), AnyError> {
     let args = cli::Cli::parse();
 
     match args.command {
-        cli::Cmd::Server { pdns_api_key_file } => {
+        cli::Cmd::Server {
+            pdns_api_key_file,
+            public_key_file: public_key,
+        } => {
             let pdns_api_key = resolve_pdns_api_key(pdns_api_key_file)?;
-            server::run(pdns_api_key).await;
+            server::run(pdns_api_key, public_key).await?;
         }
         cli::Cmd::Keygen {
             private_key,

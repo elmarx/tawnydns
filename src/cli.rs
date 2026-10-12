@@ -12,6 +12,8 @@ pub enum Cmd {
     Server {
         #[arg(long, env = "PDNS_API_KEY_FILE")]
         pdns_api_key_file: Option<PathBuf>,
+        #[arg(long, env = "PUBLIC_KEY_FILE")]
+        public_key_file: PathBuf,
     },
     Keygen {
         #[arg(default_value = "private.key")]
