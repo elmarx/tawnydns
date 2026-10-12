@@ -1,11 +1,17 @@
 use eros::Context;
-use jsonwebtoken::{
-    Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode,
-};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, TokenData, decode, encode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
+pub static VALIDATION: LazyLock<jsonwebtoken::Validation> = LazyLock::new(|| {
+    let mut validation = jsonwebtoken::Validation::new(Algorithm::EdDSA);
+    validation.validate_exp = false;
+    validation.required_spec_claims = HashSet::new();
+    validation
+});
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claim {
@@ -24,11 +30,7 @@ pub fn encode_token(private_key_pem: &[u8], claim: &Claim) -> eros::Result<Strin
 pub fn decode_token(public_key_pem: &[u8], token: &str) -> eros::Result<TokenData<Claim>> {
     let key = DecodingKey::from_ed_pem(public_key_pem).context("decode public key")?;
 
-    let mut validation = Validation::new(Algorithm::EdDSA);
-    validation.validate_exp = false;
-    validation.required_spec_claims = HashSet::new();
-
-    let token = decode::<Claim>(token.trim(), &key, &validation).context("decoding token")?;
+    let token = decode::<Claim>(token.trim(), &key, &VALIDATION).context("decoding token")?;
 
     Ok(token)
 }

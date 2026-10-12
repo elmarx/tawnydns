@@ -1,11 +1,12 @@
 use crate::server::constants::X_API_KEY;
 use crate::server::proxy;
 use crate::server::types::TawnyState;
-use crate::token::Claim;
+use crate::token::{Claim, VALIDATION};
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use http::{HeaderMap, Response};
+use jsonwebtoken::TokenData;
 use subtle::ConstantTimeEq;
 
 pub enum Principal {
@@ -18,16 +19,25 @@ pub enum Error {
     #[error("No X-API-Key header given")]
     NoApiKeyGiven,
     #[error("Invalid X-API-Key given")]
-    InvalidApiKey,
+    InvalidApiKey(#[from] jsonwebtoken::errors::Error),
+    #[error("Multiple X-API-Key headers given")]
+    MultipleHeadersGiven,
 }
 
 fn identify(headers: &HeaderMap, s: &TawnyState) -> Result<Principal, Error> {
+    if 1 < headers.get_all(X_API_KEY).iter().count() {
+        return Err(Error::MultipleHeadersGiven);
+    }
+
     match headers.get(X_API_KEY) {
         // use constant-time comparison to mitigate timing attacks
         Some(api_key) if api_key.as_bytes().ct_eq(s.pdns_api_key.as_bytes()).into() => {
             Ok(Principal::Admin)
         }
-        Some(_api_key) => todo!("check/decode/validate JWT"),
+        Some(api_key) => match jsonwebtoken::decode::<Claim>(api_key, &s.public_key, &VALIDATION) {
+            Ok(TokenData { claims, .. }) => Ok(Principal::Token(claims)),
+            Err(e) => Err(Error::InvalidApiKey(e)),
+        },
         None => Err(Error::NoApiKeyGiven),
     }
 }
@@ -85,6 +95,18 @@ mod tests {
         headers
     }
 
+    fn sign(key: &EncodingKey, zones: &[&str]) -> String {
+        let claim = Claim {
+            zones: zones.iter().map(ToString::to_string).collect(),
+        };
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA),
+            &claim,
+            key,
+        )
+        .unwrap()
+    }
+
     mod identify {
         use super::*;
 
@@ -113,6 +135,158 @@ mod tests {
             let actual = identify(&sample, &state().0);
 
             assert!(matches!(actual, Ok(Principal::Admin)));
+        }
+
+        #[test]
+        fn multiple_api_key_headers_are_rejected() {
+            let samples = [
+                ["wrong", PDNS_API_KEY],
+                [PDNS_API_KEY, "wrong"],
+                [PDNS_API_KEY, PDNS_API_KEY],
+            ];
+
+            for sample in samples {
+                let mut headers = HeaderMap::new();
+                for value in sample {
+                    headers.append(X_API_KEY, HeaderValue::from_static(value));
+                }
+
+                let actual = identify(&headers, &state().0);
+
+                assert!(
+                    matches!(actual, Err(Error::MultipleHeadersGiven)),
+                    "{sample:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn near_misses_of_the_actual_key_are_rejected() {
+            let samples = [
+                "",
+                "actual-ke",
+                "actual-key ",
+                " actual-key",
+                "ACTUAL-KEY",
+                "actual-key2",
+            ];
+
+            for sample in samples {
+                let sample = headers(X_API_KEY, sample);
+
+                let actual = identify(&sample, &state().0);
+
+                assert!(matches!(actual, Err(Error::InvalidApiKey(_))), "{sample:?}");
+            }
+        }
+
+        #[test]
+        fn non_ascii_key_is_rejected() {
+            let mut sample = HeaderMap::new();
+            sample.insert(X_API_KEY, HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap());
+
+            let actual = identify(&sample, &state().0);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
+        }
+
+        #[test]
+        fn valid_token_is_identified_with_its_claim() {
+            let (state, encoding_key) = state();
+            let sample = headers(X_API_KEY, &sign(&encoding_key, &["example.com."]));
+
+            let actual = identify(&sample, &state);
+
+            let Ok(Principal::Token(actual)) = actual else {
+                panic!("expected a token principal");
+            };
+            assert_eq!(actual.zones, vec!["example.com."]);
+        }
+
+        #[test]
+        fn token_signed_by_other_key_is_rejected() {
+            let (_, other_encoding_key) = state();
+            let sample = headers(X_API_KEY, &sign(&other_encoding_key, &["example.com."]));
+
+            let actual = identify(&sample, &state().0);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
+        }
+
+        #[test]
+        fn token_with_tampered_payload_is_rejected() {
+            let (state, encoding_key) = state();
+            let token = sign(&encoding_key, &["example.com."]);
+            let forged = sign(&encoding_key, &["other.org."]);
+            // header and signature of the first token, payload of the second
+            let parts = |t: &str| t.split('.').map(String::from).collect::<Vec<_>>();
+            let (token, forged) = (parts(&token), parts(&forged));
+            let sample = headers(
+                X_API_KEY,
+                &format!("{}.{}.{}", token[0], forged[1], token[2]),
+            );
+
+            let actual = identify(&sample, &state);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
+        }
+
+        #[test]
+        fn token_with_other_algorithm_is_rejected() {
+            let (state, _) = state();
+            let claim = Claim {
+                zones: vec!["example.com.".into()],
+            };
+            let hmac_key = jsonwebtoken::EncodingKey::from_secret(b"secret");
+            let token =
+                jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claim, &hmac_key).unwrap();
+            let sample = headers(X_API_KEY, &token);
+
+            let actual = identify(&sample, &state);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
+        }
+
+        #[test]
+        fn unsigned_token_is_rejected() {
+            // {"alg":"none","typ":"JWT"} . {"z":["example.com."]} .
+            let sample = headers(
+                X_API_KEY,
+                "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ6IjpbImV4YW1wbGUuY29tLiJdfQ.",
+            );
+
+            let actual = identify(&sample, &state().0);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
+        }
+
+        #[test]
+        fn malformed_tokens_are_rejected() {
+            let samples = ["garbage", "a.b.c", "..", "a.b"];
+
+            for sample in samples {
+                let sample = headers(X_API_KEY, sample);
+
+                let actual = identify(&sample, &state().0);
+
+                assert!(matches!(actual, Err(Error::InvalidApiKey(_))), "{sample:?}");
+            }
+        }
+
+        #[test]
+        fn token_with_unexpected_claims_is_rejected() {
+            let (state, encoding_key) = state();
+            let token = jsonwebtoken::encode(
+                &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA),
+                &serde_json::json!({ "sub": "example.com." }),
+                &encoding_key,
+            )
+            .unwrap();
+            let sample = headers(X_API_KEY, &token);
+
+            let actual = identify(&sample, &state);
+
+            assert!(matches!(actual, Err(Error::InvalidApiKey(_))));
         }
     }
 
