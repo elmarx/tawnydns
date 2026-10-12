@@ -139,6 +139,35 @@ pub enum RouteError {
     Malformed,
 }
 
+impl Route {
+    #[expect(dead_code)]
+    /// The zone addressed by the path, if any (`CreateZone` has none: the zone is in the body).
+    pub fn zone(&self) -> Option<&str> {
+        match self {
+            Route::GetZone { zone, .. }
+            | Route::PatchZone { zone, .. }
+            | Route::PutZone { zone, .. }
+            | Route::DeleteZone { zone, .. }
+            | Route::AxfrRetrieve { zone, .. }
+            | Route::ExportZone { zone, .. }
+            | Route::NotifyZone { zone, .. }
+            | Route::RectifyZone { zone, .. }
+            | Route::ListCryptokeys { zone, .. }
+            | Route::CreateCryptokey { zone, .. }
+            | Route::GetCryptokey { zone, .. }
+            | Route::ModifyCryptokey { zone, .. }
+            | Route::DeleteCryptokey { zone, .. }
+            | Route::ListMetadata { zone, .. }
+            | Route::CreateMetadata { zone, .. }
+            | Route::GetMetadata { zone, .. }
+            | Route::ModifyMetadata { zone, .. }
+            | Route::DeleteMetadata { zone, .. } => Some(zone),
+            // a zone rule on a route without a zone is denied, so a missed route fails closed
+            _ => None,
+        }
+    }
+}
+
 impl TryFrom<(&Method, &str)> for Route {
     type Error = RouteError;
 
