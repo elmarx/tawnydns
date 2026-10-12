@@ -6,6 +6,7 @@
 //! ```not_rust
 //! cargo run -p example-reverse-proxy
 //! ```
+use crate::cli::TokenCmd;
 use axum::body::Body;
 use clap::Parser;
 use eros::{AnyError, Context};
@@ -18,6 +19,7 @@ mod handler;
 mod keygen;
 mod proxy;
 mod server;
+mod token;
 
 static KEY_TO_ZONE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
@@ -42,7 +44,14 @@ async fn main() -> eros::Result<(), AnyError> {
             private_key,
             public_key,
         } => keygen::keygen(private_key, public_key).context("keygen")?,
-        cli::Cmd::Token { .. } => todo!(),
+        cli::Cmd::Token {
+            command: TokenCmd::Create { private_key, zone },
+        } => println!("{}", token::create(private_key, zone)?),
+        cli::Cmd::Token {
+            command: TokenCmd::Inspect { public_key, token },
+        } => {
+            println!("{:#?}", token::inspect(public_key, token)?);
+        }
     }
 
     Ok(())

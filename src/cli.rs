@@ -24,6 +24,16 @@ pub enum Cmd {
 
 #[derive(clap::Subcommand)]
 pub enum TokenCmd {
-    Create,
-    Inspect,
+    /// create a token
+    Create {
+        #[arg(default_value = "private.key", long)]
+        private_key: PathBuf,
+        zone: String,
+    },
+    /// inspect/validate a token
+    Inspect {
+        #[arg(default_value = "tawnydns.pub", long)]
+        public_key: PathBuf,
+        token: PathBuf,
+    },
 }
