@@ -21,8 +21,15 @@ pub struct Claim {
 
 pub fn encode_token(private_key_pem: &[u8], claim: &Claim) -> eros::Result<String> {
     let key = EncodingKey::from_ed_pem(private_key_pem).context("decode private key")?;
+    let claim = Claim {
+        zones: claim
+            .zones
+            .iter()
+            .map(|z| z.strip_suffix('.').unwrap_or(z).to_string())
+            .collect(),
+    };
     let token =
-        encode(&Header::new(Algorithm::EdDSA), claim, &key).context("encoding the token")?;
+        encode(&Header::new(Algorithm::EdDSA), &claim, &key).context("encoding the token")?;
 
     Ok(token)
 }
@@ -73,6 +80,19 @@ mod tests {
 
         assert_eq!(actual.header.alg, Algorithm::EdDSA);
         assert_eq!(actual.claims.zones, sample.zones);
+    }
+
+    #[test]
+    fn encode_strips_trailing_dot() {
+        let (private_key, public_key) = generate().unwrap();
+        let sample = Claim {
+            zones: vec!["example.com.".to_string(), "example.org".to_string()],
+        };
+
+        let token = encode_token(private_key.as_bytes(), &sample).unwrap();
+        let actual = decode_token(public_key.as_bytes(), &token).unwrap();
+
+        assert_eq!(actual.claims.zones, vec!["example.com", "example.org"]);
     }
 
     #[test]

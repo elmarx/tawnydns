@@ -33,6 +33,7 @@ pub enum TokenCmd {
     Create {
         #[arg(default_value = "private.key", long)]
         private_key: PathBuf,
+        /// zone to create the token for. No normalization/validation happens, just the trailing dot will be stripped (and this will be taken in account later)
         zone: String,
     },
     /// inspect/validate a token
