@@ -1,7 +1,6 @@
 //! Response filters: remove what the claim doesn't cover from a pdns response to an allowed request.
 use crate::token::Claim;
 
-#[expect(dead_code)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ResponseFilter {
     ZoneList,
@@ -18,6 +17,8 @@ pub enum FilterError {
 impl ResponseFilter {
     /// Filters a response body, to be called once the body is buffered.
     pub fn apply(self, _claim: &Claim, _body: &bytes::Bytes) -> Result<bytes::Bytes, FilterError> {
+        // TODO: `ZoneList`: body must be a JSON array (else an error, not a denial), keep entries
+        // whose `name` is permitted by the claim (`Claim::permits`)
         todo!()
     }
 }

@@ -4,7 +4,6 @@ use percent_encoding::percent_decode_str;
 /// One variant per operation of the PowerDNS authoritative API (method + path),
 /// path parameters are percent-decoded.
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(not(test), expect(dead_code))]
 pub enum Route {
     /// `GET /api/v1/servers`
     ListServers,
@@ -131,7 +130,6 @@ pub enum Route {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[cfg_attr(not(test), expect(dead_code))]
 pub enum RouteError {
     /// well-formed request, but not an operation we know (config, search, tsigkeys, ...)
     Unknown,
@@ -140,7 +138,6 @@ pub enum RouteError {
 }
 
 impl Route {
-    #[expect(dead_code)]
     /// The zone addressed by the path, if any (`CreateZone` has none: the zone is in the body).
     pub fn zone(&self) -> Option<&str> {
         match self {
@@ -165,6 +162,16 @@ impl Route {
             // a zone rule on a route without a zone is denied, so a missed route fails closed
             _ => None,
         }
+    }
+}
+
+impl<B> TryFrom<&http::request::Request<B>> for Route {
+    type Error = RouteError;
+
+    fn try_from(req: &http::request::Request<B>) -> Result<Self, Self::Error> {
+        let path = req.uri().path();
+        let method = req.method();
+        Route::try_from((method, path))
     }
 }
 
@@ -382,7 +389,6 @@ impl TryFrom<(&Method, &str)> for Route {
 
 /// Percent-decodes one raw path segment and rejects anything that could be used to
 /// smuggle paths or confuse downstream components.
-#[cfg_attr(not(test), expect(dead_code))]
 fn decode_segment(raw: &str) -> Result<String, RouteError> {
     if raw.is_empty() {
         return Err(RouteError::Malformed);

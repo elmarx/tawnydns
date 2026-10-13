@@ -1,4 +1,3 @@
-use axum::routing::{any, post};
 use axum::{Router, middleware};
 use eros::{AnyError, Context};
 use http::HeaderValue;
@@ -8,8 +7,11 @@ use tower_http::trace::TraceLayer;
 use tracing::Level;
 use types::TawnyState;
 
+use crate::server::handler::handle;
+
 mod authenticate;
 mod constants;
+mod error;
 mod handler;
 mod proxy;
 mod types;
@@ -23,21 +25,7 @@ pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result
     let state = TawnyState::new(pdns_api_key, public_key);
 
     let app = Router::new()
-        .route(
-            "/api/v1/servers/localhost/zones/{zone_id}/{*path}",
-            any(handler::zone_path),
-        )
-        .route(
-            "/api/v1/servers/localhost/zones/{zone_id}",
-            any(handler::zone_root),
-        )
-        .route(
-            "/api/v1/servers/localhost/zones",
-            post(handler::create_zone).fallback(proxy::passthrough),
-        )
-        .route("/api/v1/servers", any(proxy::sudo_proxy))
-        .route("/api/v1/servers/{server}", any(proxy::sudo_proxy))
-        .fallback(proxy::passthrough)
+        .fallback(handle)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::authenticate_middleware,

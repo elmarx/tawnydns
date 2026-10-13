@@ -1,55 +1,46 @@
-use crate::server::proxy;
+use crate::pdns_api::Route;
+use crate::policy::{self, Grant};
+use crate::server::error::Error;
+use crate::server::proxy::sudo_proxy;
 use crate::server::types::TawnyState;
 use crate::token::Claim;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::{Request, Response};
 
-pub async fn zone_root(
+pub async fn handle(
     State(state): State<TawnyState>,
-    Path(zone_id): Path<String>,
     axum::Extension(claim): axum::Extension<Claim>,
     req: Request<Body>,
-) -> Response<Body> {
-    handle_zone(state, zone_id, None, claim, req).await
-}
+) -> Result<Response<Body>, Error> {
+    let route = Route::try_from(&req)?;
+    let Grant {
+        body_condition,
+        filter,
+    } = policy::authorize(&claim, &route)?;
 
-pub async fn zone_path(
-    State(state): State<TawnyState>,
-    Path((zone_id, zone_path)): Path<(String, String)>,
-    axum::Extension(claim): axum::Extension<Claim>,
-    req: Request<Body>,
-) -> Response<Body> {
-    handle_zone(state, zone_id, Some(zone_path), claim, req).await
-}
-
-pub async fn create_zone(State(state): State<TawnyState>, req: Request<Body>) -> Response<Body> {
-    // TODO: filter the request
-    proxy::sudo_proxy(State(state), req).await
-}
-
-async fn handle_zone(
-    state: TawnyState,
-    zone_id: String,
-    _zone_path: Option<String>,
-    claim: Claim,
-    req: Request<Body>,
-) -> Response<Body> {
-    let _path = req.uri().path();
-
-    // the zone in PowerDNS-Api requests may end with a '.' but is not required to end with a '.'
-    // so let's normalize it here
-    let zone_id = zone_id.strip_suffix('.').unwrap_or(&zone_id);
-
-    // if the current zone_id matches the allowed_zone, then replace the key.
-    let is_allowed = claim.zones.iter().any(|z| z == zone_id);
-
-    if is_allowed {
-        proxy::sudo_proxy(State(state), req).await
-    } else {
-        Response::builder()
-            .status(http::StatusCode::FORBIDDEN)
-            .body(Body::empty())
-            .unwrap()
+    if let Some(_body_check) = body_condition {
+        todo!("slurp and check the body, if not permitted, send 403");
+        #[expect(unreachable_code)]
+        return Err(Error::InvalidRequestBody);
     }
+
+    // TODO: if `filter` is set, remove `Accept-Encoding` from the request before forwarding,
+    // otherwise pdns may compress the response and the filter can't parse it
+    let response = sudo_proxy(State(state), req).await;
+
+    if let Some(_response_filter) = filter {
+        // TODO: only filter successful (2xx) responses, pass error responses through unchanged
+        // TODO: buffer the body with a size limit, a response that is too large or a body
+        // that can't be filtered (`FilterError`) is an upstream failure: 502, never the unfiltered body
+        // TODO: reject a `Content-Encoding` other than identity as upstream failure (502)
+        // TODO: after filtering, replace the body and fix/remove `Content-Length` in the parts
+        let (_parts, _body) = response.into_parts();
+        // TODO: maybe update the signature of response_filter to take a body
+        // let body = response_filter.apply(&claim, body);
+
+        todo!("handle body result, send error, or build response with parts")
+    }
+
+    Ok(response)
 }
