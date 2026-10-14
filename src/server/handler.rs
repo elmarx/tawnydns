@@ -19,11 +19,21 @@ pub async fn handle(
         filter,
     } = policy::authorize(&claim, &route)?;
 
-    if let Some(_body_check) = body_condition {
-        todo!("slurp and check the body, if not permitted, send 403");
-        #[expect(unreachable_code)]
-        return Err(Error::InvalidRequestBody);
-    }
+    let req = if let Some(body_check) = body_condition {
+        let (parts, body) = req.into_parts();
+        let bytes = axum::body::to_bytes(body, 1024 * 1024)
+            .await
+            .map_err(|_e| {
+                // TODO: distinguish reaching the limit — 413 and normal "read error"
+                // TODO: log the error
+                Error::InvalidRequestBody
+            })?;
+
+        body_check.apply(&claim, &bytes)?;
+        Request::from_parts(parts, Body::from(bytes))
+    } else {
+        req
+    };
 
     // TODO: if `filter` is set, remove `Accept-Encoding` from the request before forwarding,
     // otherwise pdns may compress the response and the filter can't parse it

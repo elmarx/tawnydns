@@ -33,6 +33,7 @@ impl From<RouteError> for Error {
         }
     }
 }
+
 impl From<Denied> for Error {
     fn from(value: Denied) -> Self {
         match value {

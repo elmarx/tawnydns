@@ -1,5 +1,4 @@
 mod authorize;
-#[expect(dead_code)]
 mod body;
 mod filter;
 mod grant;
