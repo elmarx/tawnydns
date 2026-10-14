@@ -39,18 +39,24 @@ pub async fn handle(
     // otherwise pdns may compress the response and the filter can't parse it
     let response = sudo_proxy(State(state), req).await;
 
-    if let Some(_response_filter) = filter {
-        // TODO: only filter successful (2xx) responses, pass error responses through unchanged
-        // TODO: buffer the body with a size limit, a response that is too large or a body
-        // that can't be filtered (`FilterError`) is an upstream failure: 502, never the unfiltered body
-        // TODO: reject a `Content-Encoding` other than identity as upstream failure (502)
-        // TODO: after filtering, replace the body and fix/remove `Content-Length` in the parts
-        let (_parts, _body) = response.into_parts();
-        // TODO: maybe update the signature of response_filter to take a body
-        // let body = response_filter.apply(&claim, body);
+    // filter 2xx responses, others will be passed through
+    let response = if let Some(response_filter) = filter
+        && response.status().is_success()
+    {
+        let (mut parts, body) = response.into_parts();
+        // TODO: properly implement error handling instead of unwrap: 502
+        let body = axum::body::to_bytes(body, 1024 * 1024).await.unwrap();
 
-        todo!("handle body result, send error, or build response with parts")
-    }
+        // TODO: properly implement error handling instead of unwrap: 502
+        let filtered_response = response_filter.apply(&claim, &body).unwrap();
+
+        // remove the content-length (since we have filtered the body)
+        parts.headers.remove(http::header::CONTENT_LENGTH);
+
+        Response::from_parts(parts, Body::from(filtered_response))
+    } else {
+        response
+    };
 
     Ok(response)
 }
