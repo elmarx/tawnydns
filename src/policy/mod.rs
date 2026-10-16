@@ -7,5 +7,5 @@ mod table;
 
 pub use authorize::authorize;
 pub use body::{BodyCheck, BodyRejected};
-pub use filter::ResponseFilter;
+pub use filter::{FilterError, ResponseFilter};
 pub use grant::{Denied, Grant};

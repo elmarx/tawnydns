@@ -9,6 +9,8 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, Response};
 
+const MAX_REQUEST_BODY: usize = 1024 * 1024;
+
 pub async fn handle(
     State(state): State<TawnyState>,
     axum::Extension(claim): axum::Extension<Claim>,
@@ -26,13 +28,9 @@ pub async fn handle(
         // checked before buffering the body
         content_type::verify_json(&parts.headers)?;
 
-        let bytes = axum::body::to_bytes(body, 1024 * 1024)
+        let bytes = axum::body::to_bytes(body, MAX_REQUEST_BODY)
             .await
-            .map_err(|_e| {
-                // TODO: distinguish reaching the limit — 413 and normal "read error"
-                // TODO: log the error
-                Error::InvalidRequestBody
-            })?;
+            .map_err(|e| Error::from_request_body(&e))?;
 
         body_check.apply(&claim, &bytes)?;
         Request::from_parts(parts, Body::from(bytes))
@@ -52,11 +50,11 @@ pub async fn handle(
         && response.status().is_success()
     {
         let (mut parts, body) = response.into_parts();
-        // TODO: properly implement error handling instead of unwrap: 502
-        let body = axum::body::to_bytes(body, 1024 * 1024).await.unwrap();
+        let body = axum::body::to_bytes(body, 1024 * 1024)
+            .await
+            .map_err(Error::UpstreamBody)?;
 
-        // TODO: properly implement error handling instead of unwrap: 502
-        let filtered_response = response_filter.apply(&claim, &body).unwrap();
+        let filtered_response = response_filter.apply(&claim, &body)?;
 
         // remove the content-length and etag (since we have filtered/modified the body)
         parts.headers.remove(http::header::CONTENT_LENGTH);
