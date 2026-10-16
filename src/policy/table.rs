@@ -1,6 +1,6 @@
 //! The route table: which rule applies to which operation of the pdns API.
 
-use crate::pdns_api::Route;
+use crate::pdns::Route;
 use crate::policy::rule::Rule;
 use crate::policy::{BodyCheck, ResponseFilter};
 

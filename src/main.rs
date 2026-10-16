@@ -7,7 +7,7 @@ mod cli;
 mod config;
 mod content_type;
 mod keygen;
-mod pdns_api;
+mod pdns;
 mod policy;
 mod server;
 mod token;

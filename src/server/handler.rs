@@ -1,5 +1,5 @@
 use crate::content_type;
-use crate::pdns_api::Route;
+use crate::pdns::Route;
 use crate::policy::{self, Grant};
 use crate::server::error::Error;
 use crate::server::proxy::sudo_proxy;

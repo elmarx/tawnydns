@@ -412,7 +412,8 @@ fn decode_segment(raw: &str) -> Result<String, RouteError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::pdns::route::{Route, RouteError};
+    use http::Method;
 
     fn s(v: &str) -> String {
         v.to_string()
