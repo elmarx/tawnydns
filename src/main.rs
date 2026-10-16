@@ -5,6 +5,7 @@ use eros::{AnyError, Context};
 
 mod cli;
 mod config;
+mod content_type;
 mod keygen;
 mod pdns_api;
 mod policy;
