@@ -100,9 +100,12 @@ impl From<crate::content_type::Error> for Error {
     }
 }
 
-impl From<policy::BodyRejected> for Error {
-    fn from(_err: policy::BodyRejected) -> Self {
-        Self::RequestBodyDenied
+impl From<policy::BodyError> for Error {
+    fn from(err: policy::BodyError) -> Self {
+        match err {
+            policy::BodyError::BodyRejected => Self::RequestBodyDenied,
+            policy::BodyError::InvalidBody => Self::InvalidRequestBody,
+        }
     }
 }
 
