@@ -17,6 +17,8 @@ pub enum Error {
     InvalidRequestBody,
     #[error("Request Body not allowed")]
     RequestBodyDenied,
+    #[error("Invalid content type, only json is supported")]
+    InvalidContentType,
 }
 
 impl IntoResponse for Error {
@@ -40,6 +42,12 @@ impl From<Denied> for Error {
             Denied::Route => Self::RouteDenied,
             Denied::Zone => Self::ZoneDenied,
         }
+    }
+}
+
+impl From<crate::content_type::Error> for Error {
+    fn from(_err: crate::content_type::Error) -> Self {
+        Self::InvalidContentType
     }
 }
 

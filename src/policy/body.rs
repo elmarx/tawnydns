@@ -1,7 +1,6 @@
 //! Request body checks, run once the body is buffered, and before it is forwarded. A failure denies the request.
-use bytes::Bytes;
-
 use crate::token::Claim;
+use bytes::Bytes;
 
 /// the request body asks for something the claim does not permit
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

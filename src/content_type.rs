@@ -6,7 +6,6 @@ use http::{HeaderMap, header};
 #[error("Content-Type is not application/json")]
 pub struct Error;
 
-#[cfg_attr(not(test), expect(unused))]
 /// Verifies that the headers contain exactly one `Content-Type` of `application/json`.
 /// Parameters like `charset` are ignored.
 pub fn verify_json(headers: &HeaderMap) -> Result<(), Error> {

@@ -1,3 +1,4 @@
+use crate::content_type;
 use crate::pdns_api::Route;
 use crate::policy::{self, Grant};
 use crate::server::error::Error;
@@ -19,8 +20,12 @@ pub async fn handle(
         filter,
     } = policy::authorize(&claim, &route)?;
 
-    let req = if let Some(body_check) = body_condition {
+    let mut req = if let Some(body_check) = body_condition {
         let (parts, body) = req.into_parts();
+
+        // checked before buffering the body
+        content_type::verify_json(&parts.headers)?;
+
         let bytes = axum::body::to_bytes(body, 1024 * 1024)
             .await
             .map_err(|_e| {
@@ -35,8 +40,11 @@ pub async fn handle(
         req
     };
 
-    // TODO: if `filter` is set, remove `Accept-Encoding` from the request before forwarding,
-    // otherwise pdns may compress the response and the filter can't parse it
+    if filter.is_some() {
+        // pdns might compress the response if we forward the Accept-Encoding header and that makes inspecting the response difficult
+        req.headers_mut().remove(http::header::ACCEPT_ENCODING);
+    }
+
     let response = sudo_proxy(State(state), req).await;
 
     // filter 2xx responses, others will be passed through
@@ -50,8 +58,9 @@ pub async fn handle(
         // TODO: properly implement error handling instead of unwrap: 502
         let filtered_response = response_filter.apply(&claim, &body).unwrap();
 
-        // remove the content-length (since we have filtered the body)
+        // remove the content-length and etag (since we have filtered/modified the body)
         parts.headers.remove(http::header::CONTENT_LENGTH);
+        parts.headers.remove(http::header::ETAG);
 
         Response::from_parts(parts, Body::from(filtered_response))
     } else {
