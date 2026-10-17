@@ -1,4 +1,4 @@
-use crate::cli::TokenCmd;
+use crate::cli::{KeyCmd, TokenCmd};
 use crate::config::resolve_pdns_api_key;
 use clap::Parser;
 use eros::{AnyError, Context};
@@ -30,10 +30,16 @@ async fn main() -> eros::Result<(), AnyError> {
             let pdns_api_key = resolve_pdns_api_key(pdns_api_key_file)?;
             server::run(pdns_api_key, public_key, listen, pdns_url).await?;
         }
-        cli::Cmd::Keygen {
-            private_key,
-            public_key,
+        cli::Cmd::Key {
+            command:
+                KeyCmd::Gen {
+                    private_key,
+                    public_key,
+                },
         } => keygen::keygen(private_key, public_key).context("keygen")?,
+        cli::Cmd::Key {
+            command: KeyCmd::Public { private_key },
+        } => print!("{}", keygen::public(private_key)?),
         cli::Cmd::Token {
             command: TokenCmd::Create { private_key, zone },
         } => println!("{}", token::create(private_key, zone)?),

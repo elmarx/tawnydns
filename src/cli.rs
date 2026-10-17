@@ -26,17 +26,31 @@ pub enum Cmd {
         #[arg(long, env = "PDNS_URL", default_value = "http://localhost:8081")]
         pdns_url: Uri,
     },
-    /// generate a public/private key pair to sign and verify tokens
-    Keygen {
-        #[arg(default_value = "private.key")]
-        private_key: PathBuf,
-        #[arg(default_value = "tawnydns.pub")]
-        public_key: PathBuf,
+    /// manage the key pair to sign and verify tokens
+    Key {
+        #[command(subcommand)]
+        command: KeyCmd,
     },
     /// create or inspect tenant tokens (API keys)
     Token {
         #[command(subcommand)]
         command: TokenCmd,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum KeyCmd {
+    /// generate a public/private key pair
+    Gen {
+        #[arg(default_value = "private.key")]
+        private_key: PathBuf,
+        #[arg(default_value = "tawnydns.pub")]
+        public_key: PathBuf,
+    },
+    /// print the public key of a private key
+    Public {
+        #[arg(default_value = "private.key")]
+        private_key: PathBuf,
     },
 }
 

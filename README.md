@@ -33,7 +33,7 @@ Run `tawnydns --help` for all commands and options. Logging is configured via th
 Create a key pair: the server verifies tokens with the public key, and you sign a token per tenant with the private key.
 
 ```bash
-tawnydns keygen                     # writes private.key and tawnydns.pub
+tawnydns key gen                    # writes private.key and tawnydns.pub
 tawnydns token create example.com   # prints a token for example.com
 ```
 
@@ -63,7 +63,7 @@ The API listens on `127.0.0.1:8081` by default ([`webserver-address`](https://do
 This repository contains a demo setup: PowerDNS via docker compose and an OpenTofu config in `tf/` that creates a zone as a tenant. If you use [direnv](https://direnv.net), `.envrc` sets the environment variables for you.
 
 ```bash
-tawnydns keygen
+tawnydns key gen
 tawnydns token create example.com > example.com.jwt
 
 docker compose up -d   # PowerDNS on localhost:8081, API key "secret"
