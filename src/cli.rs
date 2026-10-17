@@ -11,9 +11,12 @@ pub struct Cli {
 
 #[derive(clap::Subcommand)]
 pub enum Cmd {
+    /// run the tawnydns server
     Server {
+        /// file containing the PowerDNS API key (alternatively set `PDNS_API_KEY`)
         #[arg(long, env = "PDNS_API_KEY_FILE")]
         pdns_api_key_file: Option<PathBuf>,
+        /// public key to verify tenant tokens
         #[arg(long, env = "PUBLIC_KEY_FILE")]
         public_key_file: PathBuf,
         /// address to listen on
@@ -23,12 +26,14 @@ pub enum Cmd {
         #[arg(long, env = "PDNS_URL", default_value = "http://localhost:8081")]
         pdns_url: Uri,
     },
+    /// generate a public/private key pair to sign and verify tokens
     Keygen {
         #[arg(default_value = "private.key")]
         private_key: PathBuf,
         #[arg(default_value = "tawnydns.pub")]
         public_key: PathBuf,
     },
+    /// create or inspect tenant tokens (API keys)
     Token {
         #[command(subcommand)]
         command: TokenCmd,
@@ -41,13 +46,14 @@ pub enum TokenCmd {
     Create {
         #[arg(default_value = "private.key", long)]
         private_key: PathBuf,
-        /// zone to create the token for. No normalization/validation happens, just the trailing dot will be stripped (and this will be taken in account later)
+        /// zone the token is valid for (a trailing dot is stripped, no further normalization)
         zone: String,
     },
     /// inspect/validate a token
     Inspect {
         #[arg(default_value = "tawnydns.pub", long)]
         public_key: PathBuf,
+        /// file containing the token, `-` for stdin
         token: PathBuf,
     },
 }
