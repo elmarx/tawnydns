@@ -1,0 +1,34 @@
+name: nix
+
+on:
+  push:
+    branches:
+      - "**"
+      - "!version-bump/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    name: nix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock', '**/Cargo.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+
+      - name: Check formatting (nixfmt)
+        run: nix run nixpkgs#nixfmt -- --check flake.nix default.nix nixos-module.nix
+      - name: Lint (statix)
+        run: nix run nixpkgs#statix -- check .
+      - name: Check for dead code (deadnix)
+        run: nix run nixpkgs#deadnix -- --fail .
+      - name: Check flake (devShells, nixosModules, etc.)
+        run: nix flake check --print-build-logs
+      - name: Build package
+        run: nix build .#default --print-build-logs
