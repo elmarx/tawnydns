@@ -57,3 +57,24 @@ api-key=secret
 ```
 
 The API listens on `127.0.0.1:8081` by default ([`webserver-address`](https://doc.powerdns.com/authoritative/settings.html#setting-webserver-address), [`webserver-port`](https://doc.powerdns.com/authoritative/settings.html#setting-webserver-port)). Keep it reachable only by tawnydns, so tenants can't bypass it.
+
+## Demo
+
+This repository contains a demo setup: PowerDNS via docker compose and an OpenTofu config in `tf/` that creates a zone as a tenant. If you use [direnv](https://direnv.net), `.envrc` sets the environment variables for you.
+
+```bash
+tawnydns keygen
+tawnydns token create example.com > example.com.jwt
+
+docker compose up -d   # PowerDNS on localhost:8081, API key "secret"
+PDNS_API_KEY=secret PUBLIC_KEY_FILE=tawnydns.pub tawnydns server
+```
+
+Then, in another shell, apply the OpenTofu config through tawnydns:
+
+```bash
+cd tf
+export PDNS_SERVER_URL=http://localhost:8082
+tofu init
+tofu apply -var tenant_api_key=$(cat ../example.com.jwt)
+```
