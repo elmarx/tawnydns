@@ -1,34 +1,37 @@
-name: Rust
+name: rust
 
 on:
   push:
-    branches: 
+    branches:
       - "**"
   pull_request:
-    branches: [ master ]
 
-env:
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: read
 
 jobs:
-  build:
-
+  test:
+    name: test
     runs-on: ubuntu-latest
-
+    env:
+      CARGO_TERM_COLOR: always
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
 
-    - name: Build
-      run: cargo check --all-targets
-
-    - name: check style
-      run: cargo fmt --all -- --check
-
-    - name: Lint
-      run: cargo clippy -- -D warnings
-
-    - name: Pedantic linting
-      run: cargo clippy --all-targets -- -W clippy::pedantic
-
-    - name: Run tests
-      run: cargo test
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check compilation
+        run: cargo check --locked --all-targets
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Lint pedantic
+        run: cargo clippy --locked --all-targets -- -D clippy::pedantic
+      - name: Run tests
+        run: cargo nextest run --locked
