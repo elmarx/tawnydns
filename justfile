@@ -12,4 +12,4 @@ clippy:
     cargo clippy --all-targets -- -W clippy::pedantic
 
 mitmproxy:
-  mitmweb --mode reverse:http://localhost:4000 --web-port 8181 --listen-port 4001
+  mitmweb --mode reverse:http://localhost:8082 --web-port 8181 --listen-port 4001

@@ -1,3 +1,5 @@
+use http::Uri;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(clap::Parser)]
@@ -14,6 +16,12 @@ pub enum Cmd {
         pdns_api_key_file: Option<PathBuf>,
         #[arg(long, env = "PUBLIC_KEY_FILE")]
         public_key_file: PathBuf,
+        /// address to listen on
+        #[arg(long, env = "LISTEN_ADDR", default_value = "[::1]:8082")]
+        listen: SocketAddr,
+        /// base URL of the PowerDNS API (http only, the path is ignored)
+        #[arg(long, env = "PDNS_URL", default_value = "http://localhost:8081")]
+        pdns_url: Uri,
     },
     Keygen {
         #[arg(default_value = "private.key")]

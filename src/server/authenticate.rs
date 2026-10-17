@@ -88,7 +88,11 @@ mod tests {
         let encoding_key = jsonwebtoken::EncodingKey::from_ed_pem(private_key.as_bytes()).unwrap();
 
         (
-            TawnyState::new(HeaderValue::from_static(PDNS_API_KEY), decoding_key),
+            TawnyState::new(
+                HeaderValue::from_static(PDNS_API_KEY),
+                decoding_key,
+                http::Uri::from_static("http://127.0.0.1:1"),
+            ),
             encoding_key,
         )
     }

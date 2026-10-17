@@ -15,7 +15,7 @@ pub struct TawnyState {
 }
 
 impl TawnyState {
-    pub fn new(pdns_api_key: HeaderValue, public_key: DecodingKey) -> TawnyState {
+    pub fn new(pdns_api_key: HeaderValue, public_key: DecodingKey, pdns_url: Uri) -> TawnyState {
         let client = hyper_util::client::legacy::Client::<(), ()>::builder(TokioExecutor::new())
             .build(HttpConnector::new());
 
@@ -23,7 +23,7 @@ impl TawnyState {
             client,
             pdns_api_key,
             public_key,
-            pdns_url: "http://127.0.0.1:8081".parse().unwrap(),
+            pdns_url,
         }
     }
 }

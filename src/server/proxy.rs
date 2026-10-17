@@ -114,9 +114,11 @@ mod tests {
         let (_, public_key) = generate().unwrap();
         let public_key = jsonwebtoken::DecodingKey::from_ed_pem(public_key.as_bytes()).unwrap();
 
-        let mut state = TawnyState::new(HeaderValue::from_static(PDNS_API_KEY), public_key);
-        state.pdns_url = pdns_url.parse().unwrap();
-        state
+        TawnyState::new(
+            HeaderValue::from_static(PDNS_API_KEY),
+            public_key,
+            pdns_url.parse().unwrap(),
+        )
     }
 
     fn joined_header(headers: &http::HeaderMap, name: &str) -> String {

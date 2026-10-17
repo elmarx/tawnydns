@@ -1,7 +1,8 @@
 use axum::{Router, middleware};
 use eros::{AnyError, Context};
-use http::HeaderValue;
+use http::{HeaderValue, Uri};
 use jsonwebtoken::DecodingKey;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
@@ -16,13 +17,18 @@ mod handler;
 mod proxy;
 mod types;
 
-pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result<(), AnyError> {
+pub async fn run(
+    pdns_api_key: HeaderValue,
+    public_key: PathBuf,
+    listen: SocketAddr,
+    pdns_url: Uri,
+) -> eros::Result<(), AnyError> {
     let public_key = tokio::fs::read(&public_key)
         .await
         .context("read public key")?;
     let public_key = DecodingKey::from_ed_pem(&public_key).context("decode public key")?;
 
-    let state = TawnyState::new(pdns_api_key, public_key);
+    let state = TawnyState::new(pdns_api_key, public_key, pdns_url);
 
     let app = Router::new()
         .fallback(handle)
@@ -37,7 +43,7 @@ pub async fn run(pdns_api_key: HeaderValue, public_key: PathBuf) -> eros::Result
         )
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
+    let listener = tokio::net::TcpListener::bind(listen)
         .await
         .context("binding tcp listener")?;
 
