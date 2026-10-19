@@ -1,5 +1,7 @@
 # tawnydns — the tenant-addon for PowerDNS
 
+<img src="logo.png" alt="virtual-lb logo" align="right" width="240">
+
 A multi-tenancy proxy for the [PowerDNS Authoritative HTTP API](https://doc.powerdns.com/authoritative/http-api/).
 
 ## Motivation
