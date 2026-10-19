@@ -1,11 +1,13 @@
 use crate::pdns::Route;
 use crate::policy::rule::Rule;
 use crate::policy::{Denied, Grant};
-use crate::token::Claim;
+use crate::token::{Claim, Permission};
 
 /// Decides what a token holder may do with a request. Admin never gets here.
 pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
-    Rule::from(route).apply(claim, route.zone())
+    match claim.permission {
+        Permission::Owner => Rule::from(route).apply(claim, route.zone()),
+    }
 }
 
 impl Claim {
@@ -24,6 +26,7 @@ mod tests {
     fn claim(zones: &[&str]) -> Claim {
         Claim {
             zones: zones.iter().map(ToString::to_string).collect(),
+            permission: Permission::Owner,
         }
     }
 

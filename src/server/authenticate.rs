@@ -71,6 +71,7 @@ pub async fn authenticate_middleware(
 mod tests {
     use super::*;
     use crate::keygen::generate;
+    use crate::token::Permission;
     use axum::Router;
     use axum::body::to_bytes;
     use axum::middleware;
@@ -109,6 +110,7 @@ mod tests {
     fn sign(key: &EncodingKey, zones: &[&str]) -> String {
         let claim = Claim {
             zones: zones.iter().map(ToString::to_string).collect(),
+            permission: Permission::Owner,
         };
         jsonwebtoken::encode(
             &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA),
@@ -247,6 +249,7 @@ mod tests {
             let (state, _) = state();
             let claim = Claim {
                 zones: vec!["example.com.".into()],
+                permission: Permission::Owner,
             };
             let hmac_key = jsonwebtoken::EncodingKey::from_secret(b"secret");
             let token =

@@ -33,11 +33,13 @@ impl ResponseFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token::Permission;
     use serde_json::{Value, json};
 
     fn test_claim(zones: &[&str]) -> Claim {
         Claim {
             zones: zones.iter().map(ToString::to_string).collect(),
+            permission: Permission::Owner,
         }
     }
 
