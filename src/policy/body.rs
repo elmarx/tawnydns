@@ -16,6 +16,8 @@ pub enum Error {
 pub enum BodyCheck {
     CreateZone,
     PutZone,
+    /// every rrset of a PATCH must be permitted by the acme permission
+    AcmeRrsets,
 }
 
 impl BodyCheck {
@@ -49,6 +51,20 @@ impl BodyCheck {
                     Err(Error::BodyRejected)
                 } else {
                     Ok(())
+                }
+            }
+            BodyCheck::AcmeRrsets => {
+                let body = serde_json::from_slice::<pdns::zone::Patch>(body)
+                    .map_err(|_| Error::InvalidBody)?;
+
+                if body
+                    .rrsets
+                    .iter()
+                    .all(|r| claim.permits_acme_rrset(&r.name, &r.rtype))
+                {
+                    Ok(())
+                } else {
+                    Err(Error::BodyRejected)
                 }
             }
         }
@@ -104,6 +120,98 @@ mod tests {
             );
             let result = BodyCheck::CreateZone.apply(&claim, &body);
             assert_eq!(result, Err(Error::BodyRejected));
+        }
+    }
+
+    mod acme_rrsets {
+        use super::*;
+        use serde_json::json;
+
+        fn acme_claim() -> Claim {
+            Claim {
+                zone: "example.com".to_string(),
+                permission: Permission::Acme(vec!["www".to_string(), "@".to_string()]),
+            }
+        }
+
+        fn patch(rrsets: &[(&str, &str)]) -> Bytes {
+            let rrsets: Vec<_> = rrsets
+                .iter()
+                .map(|(name, rtype)| {
+                    json!({
+                        "name": name,
+                        "type": rtype,
+                        "changetype": "REPLACE",
+                        "ttl": 60,
+                        "records": [{"content": "\"token\"", "disabled": false}]
+                    })
+                })
+                .collect();
+            Bytes::from(serde_json::to_vec(&json!({ "rrsets": rrsets })).unwrap())
+        }
+
+        #[test]
+        fn accepts_permitted_rrsets() {
+            let sample = patch(&[
+                ("_acme-challenge.www.example.com.", "TXT"),
+                ("_acme-challenge.example.com.", "TXT"),
+            ]);
+
+            let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+
+            assert_eq!(actual, Ok(()));
+        }
+
+        #[test]
+        fn accepts_delete() {
+            let sample = Bytes::from_static(
+                br#"{"rrsets": [{"name": "_acme-challenge.www.example.com.", "type": "TXT", "changetype": "DELETE"}]}"#,
+            );
+
+            let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+
+            assert_eq!(actual, Ok(()));
+        }
+
+        #[test]
+        fn rejects_if_any_rrset_is_not_permitted() {
+            for rrset in [
+                ("www.example.com.", "A"),
+                ("_acme-challenge.www.example.com.", "CNAME"),
+                ("_acme-challenge.other.example.com.", "TXT"),
+                ("example.com.", "TXT"),
+                ("_acme-challenge.www.example.org.", "TXT"),
+            ] {
+                let sample = patch(&[("_acme-challenge.www.example.com.", "TXT"), rrset]);
+
+                let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+
+                assert_eq!(actual, Err(Error::BodyRejected), "{rrset:?}");
+            }
+        }
+
+        #[test]
+        fn rejects_owner() {
+            let sample = patch(&[("_acme-challenge.www.example.com.", "TXT")]);
+
+            let actual = BodyCheck::AcmeRrsets.apply(&test_claim("example.com"), &sample);
+
+            assert_eq!(actual, Err(Error::BodyRejected));
+        }
+
+        #[test]
+        fn rejects_invalid_body() {
+            for sample in [
+                &br#"{"rrsets": [{"name": "_acme-challenge.www.example.com."}]}"#[..],
+                br#"{"rrsets": {}}"#,
+                b"{}",
+                b"",
+            ] {
+                let actual =
+                    BodyCheck::AcmeRrsets.apply(&acme_claim(), &Bytes::copy_from_slice(sample));
+
+                assert_eq!(actual, Err(Error::InvalidBody));
+            }
         }
     }
 

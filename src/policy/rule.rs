@@ -12,8 +12,10 @@ pub enum Rule {
     Never,
     /// always allow
     Open,
-    /// allow if the route's zone is in the claim
+    /// allow if the route's zone is the zone of the claim
     Zone,
+    /// zone check, then filter the response by the claim
+    ZoneAndFilter(ResponseFilter),
     /// zone check, then inspect the body
     ZoneAndBody(BodyCheck),
     /// the claim is checked against the body only (the zone is not part of the path)
@@ -25,14 +27,15 @@ pub enum Rule {
 impl Rule {
     /// Resolves the rule for a concrete request; `zone` is the zone addressed by the path, if any.
     pub fn apply(self, claim: &Claim, zone: Option<&str>) -> Result<Grant, Denied> {
-        let zone_permitted = zone.is_some_and(|z| claim.permits(z));
+        let zone_permitted = zone.is_some_and(|z| claim.is_zone(z));
 
         match self {
             Rule::Never => route_denied(),
             Rule::Open => granted(),
             Rule::Zone if zone_permitted => granted(),
             Rule::ZoneAndBody(kind) if zone_permitted => granted_with_condition(kind),
-            Rule::Zone | Rule::ZoneAndBody(_) => zone_denied(),
+            Rule::ZoneAndFilter(kind) if zone_permitted => granted_with_filter(kind),
+            Rule::Zone | Rule::ZoneAndBody(_) | Rule::ZoneAndFilter(_) => zone_denied(),
             Rule::Body(kind) => granted_with_condition(kind),
             Rule::FilteredList(kind) => granted_with_filter(kind),
         }

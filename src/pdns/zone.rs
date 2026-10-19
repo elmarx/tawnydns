@@ -36,3 +36,63 @@ pub enum Kind {
     Producer,
     Consumer,
 }
+
+/// Body of `PATCH /servers/{server_id}/zones/{zone_id}`: changes the rrsets of the zone of the
+/// path, pdns ignores all other fields.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct Patch {
+    pub rrsets: Vec<PatchRrset>,
+}
+
+/// An rrset of a [`Patch`], identified by name and type. The changetype is not modelled: whoever
+/// may change an rrset may also delete it.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct PatchRrset {
+    /// canonical (with trailing dot)
+    pub name: String,
+    #[serde(rename = "type")]
+    pub rtype: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_patch() {
+        let sample = r#"{"rrsets": [{
+            "name": "_acme-challenge.example.com.",
+            "type": "TXT",
+            "changetype": "REPLACE",
+            "ttl": 60,
+            "records": [{"content": "\"token\"", "disabled": false}]
+        }]}"#;
+
+        let actual: Patch = serde_json::from_str(sample).unwrap();
+
+        let expected = Patch {
+            rrsets: vec![PatchRrset {
+                name: "_acme-challenge.example.com.".to_string(),
+                rtype: "TXT".to_string(),
+            }],
+        };
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn rejects_invalid_patch() {
+        for sample in [
+            "{}",
+            r#"{"rrsets": {}}"#,
+            r#"{"rrsets": [{"name": "example.com."}]}"#,
+            r#"{"rrsets": [{"type": "TXT"}]}"#,
+            r#"{"rrsets": [{"name": "a.example.com.", "type": "TXT", "name": "example.com."}]}"#,
+            r#"{"rrsets": [{"name": "a.example.com.", "type": "TXT", "type": "A"}]}"#,
+            r#"{"rrsets": [], "rrsets": []}"#,
+        ] {
+            let actual = serde_json::from_str::<Patch>(sample);
+
+            assert!(actual.is_err(), "{sample}");
+        }
+    }
+}
