@@ -12,7 +12,7 @@ impl Rule {
     #[deny(clippy::wildcard_enum_match_arm)]
     pub fn owner(route: &Route) -> Self {
         match route {
-            Route::ListServers | Route::GetServer { .. } => Self::Open,
+            Route::ListApiVersions | Route::ListServers | Route::GetServer { .. } => Self::Open,
 
             Route::ListZones { .. } => Self::FilteredList(ResponseFilter::ZoneList),
             Route::CreateZone { .. } => Self::Body(BodyCheck::CreateZone),
@@ -64,7 +64,7 @@ impl Rule {
     #[deny(clippy::wildcard_enum_match_arm)]
     pub fn acme(route: &Route) -> Self {
         match route {
-            Route::ListServers | Route::GetServer { .. } => Self::Open,
+            Route::ListApiVersions | Route::ListServers | Route::GetServer { .. } => Self::Open,
 
             Route::ListZones { .. } => Self::FilteredList(ResponseFilter::ZoneList),
             Route::GetZone { .. } => Self::ZoneAndFilter(ResponseFilter::AcmeRrsets),

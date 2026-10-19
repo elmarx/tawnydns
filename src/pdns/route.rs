@@ -5,6 +5,8 @@ use percent_encoding::percent_decode_str;
 /// path parameters are percent-decoded.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Route {
+    /// `GET /api`, used by clients (e.g. lego) to detect the API version
+    ListApiVersions,
     /// `GET /api/v1/servers`
     ListServers,
     /// `GET /api/v1/servers/{server}`
@@ -183,6 +185,13 @@ impl TryFrom<(&Method, &str)> for Route {
         reason = "one flat match arm per API operation"
     )]
     fn try_from((method, path): (&Method, &str)) -> Result<Self, Self::Error> {
+        if path == "/api" {
+            return match method {
+                &Method::GET => Ok(Route::ListApiVersions),
+                _ => Err(RouteError::Unknown),
+            };
+        }
+
         let Some(rest) = path.strip_prefix("/api/v1/servers") else {
             return Err(RouteError::Unknown);
         };
@@ -437,6 +446,7 @@ mod tests {
     }
 
     recognizes! {
+        list_api_versions: GET "/api" => Route::ListApiVersions;
         list_servers: GET "/api/v1/servers" => Route::ListServers;
         get_server: GET "/api/v1/servers/localhost" => Route::GetServer { server: s("localhost") };
 
@@ -533,6 +543,7 @@ mod tests {
     #[test]
     fn a_wrong_method_is_unknown() {
         let samples = [
+            (Method::POST, "/api"),
             (Method::POST, "/api/v1/servers"),
             (
                 Method::GET,
@@ -554,7 +565,7 @@ mod tests {
     fn unsupported_paths_are_unknown() {
         let samples = [
             "/",
-            "/api",
+            "/api/",
             "/api/v1",
             "/api/v2/servers",
             "/api/v1/server",

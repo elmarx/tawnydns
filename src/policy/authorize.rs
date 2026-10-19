@@ -283,6 +283,7 @@ mod tests {
                 })
             };
             for (method, path, expected) in [
+                (http::Method::GET, "/api", grant(None, None)),
                 (http::Method::GET, "/api/v1/servers", grant(None, None)),
                 (
                     http::Method::GET,
