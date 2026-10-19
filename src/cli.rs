@@ -62,6 +62,11 @@ pub enum TokenCmd {
         private_key: PathBuf,
         /// zone the token is valid for (a trailing dot is stripped, no further normalization)
         zone: String,
+        /// Restrict the token to solving ACME DNS-01 challenges for this name, relative to the
+        /// zone: e.g. `www` for `www.<zone>`, `@` for the zone itself or `*` for any name in the
+        /// zone. Repeat for more names. Without, the token has full access to the zone.
+        #[arg(long = "acme", value_name = "NAME")]
+        acme_names: Vec<String>,
     },
     /// inspect/validate a token
     Inspect {

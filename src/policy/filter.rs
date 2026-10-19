@@ -36,9 +36,9 @@ mod tests {
     use crate::token::Permission;
     use serde_json::{Value, json};
 
-    fn test_claim(zones: &[&str]) -> Claim {
+    fn test_claim(zone: &str) -> Claim {
         Claim {
-            zones: zones.iter().map(ToString::to_string).collect(),
+            zone: zone.to_string(),
             permission: Permission::Owner,
         }
     }
@@ -50,9 +50,9 @@ mod tests {
     }
 
     #[test]
-    fn keeps_zones_of_the_claim() {
-        let claim = test_claim(&["example.com", "example.org"]);
-        let body = json!([{"name": "example.com."}, {"name": "example.org."}]);
+    fn keeps_zone_of_the_claim() {
+        let claim = test_claim("example.com");
+        let body = json!([{"name": "example.com."}]);
 
         let actual = filter_zone_list(&claim, &body);
 
@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn drops_zones_not_in_the_claim() {
-        let claim = test_claim(&["example.com"]);
+        let claim = test_claim("example.com");
         let body = json!([
             {"name": "other.com."},
             {"name": "example.com."},
@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn keeps_all_fields_of_kept_entries() {
-        let claim = test_claim(&["example.com"]);
+        let claim = test_claim("example.com");
         let body = json!([{
             "id": "example.com.",
             "name": "example.com.",
@@ -93,7 +93,7 @@ mod tests {
     // anything else than a list can't be filtered, so it must not be passed through
     #[test]
     fn rejects_body_that_is_not_a_list() {
-        let claim = test_claim(&["example.com"]);
+        let claim = test_claim("example.com");
         let body = Bytes::from_static(br#"{"name": "other.com."}"#);
 
         let actual = ResponseFilter::ZoneList.apply(&claim, &body);

@@ -60,10 +60,10 @@ mod tests {
     use super::*;
     use crate::token::Permission;
 
-    // Helper to create a test claim with given zones
-    fn test_claim(zones: &[&str]) -> Claim {
+    // Helper to create a test claim with given zone
+    fn test_claim(zone: &str) -> Claim {
         Claim {
-            zones: zones.iter().map(ToString::to_string).collect(),
+            zone: zone.to_string(),
             permission: Permission::Owner,
         }
     }
@@ -74,7 +74,7 @@ mod tests {
         // pdns requires canonical names (with trailing dot) in bodies, claims hold zones without it.
         #[test]
         fn rejects_name_without_trailing_dot() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from_static(br#"{"name": "example.com"}"#);
             let result = BodyCheck::CreateZone.apply(&claim, &body);
             assert_eq!(result, Err(Error::InvalidBody));
@@ -82,7 +82,7 @@ mod tests {
 
         #[test]
         fn accepts_valid_zone_name_in_claim() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"name": "example.com."}"#);
             let result = BodyCheck::CreateZone.apply(&claim, &body);
             assert!(result.is_ok());
@@ -90,7 +90,7 @@ mod tests {
 
         #[test]
         fn rejects_zone_not_in_claim() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"name": "other.com."}"#);
             let result = BodyCheck::CreateZone.apply(&claim, &body);
             assert_eq!(result, Err(Error::BodyRejected));
@@ -98,7 +98,7 @@ mod tests {
 
         #[test]
         fn rejects_forbidden_fields() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(
                 r#"{"name": "example.com.", "kind": "Slave", "masters": ["192.0.2.1"]}"#,
             );
@@ -112,7 +112,7 @@ mod tests {
 
         #[test]
         fn accepts_valid_body_without_kind_or_masters() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"dnssec": false, "serial": 2021010101}"#);
             let result = BodyCheck::PutZone.apply(&claim, &body);
             assert!(result.is_ok());
@@ -120,7 +120,7 @@ mod tests {
 
         #[test]
         fn rejects_kind_modification() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"kind": "Slave"}"#);
             let result = BodyCheck::PutZone.apply(&claim, &body);
             assert_eq!(result, Err(Error::BodyRejected));
@@ -128,7 +128,7 @@ mod tests {
 
         #[test]
         fn rejects_masters_modification() {
-            let claim = test_claim(&["example.com"]);
+            let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"masters": ["8.8.8.8"]}"#);
             let result = BodyCheck::PutZone.apply(&claim, &body);
             assert_eq!(result, Err(Error::BodyRejected));
