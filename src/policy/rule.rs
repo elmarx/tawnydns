@@ -35,8 +35,11 @@ pub enum Rule {
 
 impl Rule {
     /// Resolves the rule for a concrete request; `zone` is the zone addressed by the path, if any.
+    /// Claims without any API permission (dyndns only) are denied every route.
     pub fn apply(self, claim: &Claim, zone: Option<&str>) -> Result<Grant, Denied> {
         match (self, zone) {
+            // non-api claims (DynDNS) can be denied directly
+            _ if !claim.is_api() => permission_denied(),
             (Rule::Never, _) => route_denied(),
             (Rule::Open, _) => granted(),
             (Rule::FilteredList(kind), _) => granted_with_filter(kind),

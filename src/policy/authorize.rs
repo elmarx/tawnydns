@@ -5,7 +5,7 @@ use crate::permissions::{AcmeName, Name, Permission, RrType, Zone};
 use crate::policy::rule::Rule;
 use crate::policy::{Denied, Grant};
 
-/// Decides what a token holder may do with a request. Admin never gets here.
+/// Decides what a token holder may do with a request, see [`Rule::apply`]. Admin never gets here.
 pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
     Rule::from(route).apply(claim, route.zone())
 }
@@ -13,9 +13,16 @@ pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
 const ACME_CHALLENGE: &str = "_acme-challenge";
 
 impl Claim {
-    /// Any permission of the claim is for `zone` (see [`Zone::matches`]).
+    /// Any permission of the claim is for the PowerDNS API.
+    pub fn is_api(&self) -> bool {
+        self.permissions.iter().any(Permission::is_api)
+    }
+
+    /// Any API permission of the claim is for `zone` (see [`Zone::matches`]).
     pub fn is_zone(&self, zone: &str) -> bool {
-        self.permissions.iter().any(|p| p.zone().matches(zone))
+        self.permissions
+            .iter()
+            .any(|p| p.is_api() && p.zone().matches(zone))
     }
 
     /// Full access to `zone`: the claim has the owner permission for exactly this zone.
@@ -49,6 +56,7 @@ impl Permission {
             }
             Permission::AnyType(z, names) => permits_name(z, names, name),
             Permission::Acme(z, names) => permits_acme_rrset(z, names, name, rtype),
+            Permission::DynDnsHost(_, _) | Permission::DynDnsZone(_) => false,
         }
     }
 }
@@ -147,7 +155,58 @@ fn permits_acme_rrset(zone: &Zone, names: &[AcmeName], name: &str, rtype: &str) 
 mod tests {
     use super::*;
     use crate::claim::fixtures::claim;
-    use crate::permissions::fixtures::{acme, owner};
+    use crate::permissions::fixtures::{acme, names, owner, zone};
+
+    fn dyndns_claim() -> Claim {
+        claim(vec![
+            Permission::DynDnsHost(zone("example.com"), names(&["home"])),
+            Permission::DynDnsZone(zone("example.org")),
+        ])
+    }
+
+    #[test]
+    fn dyndns_is_no_zone_of_the_api() {
+        let sample = claim(vec![
+            owner("example.com"),
+            Permission::DynDnsHost(zone("example.org"), names(&["home"])),
+            Permission::DynDnsZone(zone("example.net")),
+        ]);
+
+        assert!(sample.is_api());
+        assert!(sample.is_zone("example.com."));
+        assert!(!sample.is_zone("example.org."));
+        assert!(!sample.is_zone("example.net."));
+        assert!(!dyndns_claim().is_api());
+    }
+
+    #[test]
+    fn dyndns_only_is_denied_every_route() {
+        for (method, path) in [
+            (http::Method::GET, "/api"),
+            (http::Method::GET, "/api/v1/servers"),
+            (http::Method::GET, "/api/v1/servers/localhost"),
+            (http::Method::GET, "/api/v1/servers/localhost/zones"),
+            (http::Method::POST, "/api/v1/servers/localhost/zones"),
+            (
+                http::Method::GET,
+                "/api/v1/servers/localhost/zones/example.com.",
+            ),
+            (
+                http::Method::PATCH,
+                "/api/v1/servers/localhost/zones/example.com.",
+            ),
+            (
+                http::Method::PUT,
+                "/api/v1/servers/localhost/zones/example.org./notify",
+            ),
+        ] {
+            let route = Route::try_from((&method, path)).unwrap();
+
+            let actual = authorize(&dyndns_claim(), &route);
+
+            assert_eq!(actual, Err(Denied::Permission), "{method} {path}");
+        }
+    }
 
     fn owner_claim(zone: &str) -> Claim {
         claim(vec![owner(zone)])
@@ -202,6 +261,17 @@ mod tests {
 
     mod rrset {
         use super::*;
+
+        #[test]
+        fn dyndns_permits_no_rrset() {
+            let sample = claim(vec![
+                Permission::DynDnsHost(zone("example.com"), names(&["home", "@"])),
+                Permission::DynDnsZone(zone("example.com")),
+            ]);
+
+            assert!(!sample.permits_rrset("example.com.", "home.example.com.", "A"));
+            assert!(!sample.permits_rrset("example.com.", "example.com.", "AAAA"));
+        }
 
         #[test]
         fn owner_permits_any_rrset_of_its_zone() {

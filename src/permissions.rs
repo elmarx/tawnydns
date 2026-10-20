@@ -24,6 +24,13 @@ pub enum Permission {
     /// solve ACME DNS-01 challenges for these names (see [`AcmeName`])
     #[serde(rename = "a")]
     Acme(Zone, Vec<AcmeName>),
+    /// dyndns only: update A/AAAA records with these names, no access to the PowerDNS API
+    #[serde(rename = "h")]
+    DynDnsHost(Zone, Vec<Name>),
+    /// dyndns only: update the prefix of all AAAA records of the zone, no access to the PowerDNS
+    /// API
+    #[serde(rename = "z")]
+    DynDnsZone(Zone),
 }
 
 impl Permission {
@@ -34,7 +41,22 @@ impl Permission {
             | Permission::Records(zone, _, _)
             | Permission::AnyName(zone, _)
             | Permission::AnyType(zone, _)
-            | Permission::Acme(zone, _) => zone,
+            | Permission::Acme(zone, _)
+            | Permission::DynDnsHost(zone, _)
+            | Permission::DynDnsZone(zone) => zone,
+        }
+    }
+
+    /// The permission is for the PowerDNS API, not just for dyndns.
+    pub fn is_api(&self) -> bool {
+        match self {
+            Permission::Owner(_)
+            | Permission::AnyRecord(_)
+            | Permission::Records(_, _, _)
+            | Permission::AnyName(_, _)
+            | Permission::AnyType(_, _)
+            | Permission::Acme(_, _) => true,
+            Permission::DynDnsHost(_, _) | Permission::DynDnsZone(_) => false,
         }
     }
 }

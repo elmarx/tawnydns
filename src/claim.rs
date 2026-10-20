@@ -40,6 +40,8 @@ mod tests {
             Permission::AnyName(zone("example.org"), types(&["TXT"])),
             Permission::AnyType(zone("example.org"), names(&["*", "*.dev"])),
             acme("example.org", &["www", "@"]),
+            Permission::DynDnsHost(zone("example.net"), names(&["home", "@"])),
+            Permission::DynDnsZone(zone("example.net")),
         ])
     }
 
@@ -50,7 +52,9 @@ mod tests {
             {"r": ["example.org", ["home", "@"], ["A", "AAAA"]]},
             {"n": ["example.org", ["TXT"]]},
             {"t": ["example.org", ["*", "*.dev"]]},
-            {"a": ["example.org", ["www", "@"]]}
+            {"a": ["example.org", ["www", "@"]]},
+            {"h": ["example.net", ["home", "@"]]},
+            {"z": "example.net"}
         ]})
     }
 
@@ -177,6 +181,17 @@ mod tests {
             json!({"1": [{"r": ["example.com", ["home"], null]}]}),
             json!({"1": [{"n": ["example.com", ["A"], ["home"]]}]}),
             json!({"1": [{"t": "example.com"}]}),
+        ]);
+    }
+
+    #[test]
+    fn rejects_invalid_dyndns_permissions() {
+        rejects(&[
+            json!({"1": [{"h": "example.com"}]}),
+            json!({"1": [{"h": ["example.com", null]}]}),
+            json!({"1": [{"h": ["example.com", ["home"], ["A"]]}]}),
+            json!({"1": [{"z": ["example.com"]}]}),
+            json!({"1": [{"z": null}]}),
         ]);
     }
 
