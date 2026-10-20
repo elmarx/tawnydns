@@ -7,8 +7,8 @@ use crate::{claim::Claim, pdns};
 pub enum ResponseFilter {
     /// keeps the zone of the claim
     ZoneList,
-    /// keeps the rrsets of a zone permitted by the acme permission
-    AcmeRrsets,
+    /// keeps the rrsets of a zone permitted by the claim
+    Rrsets,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -18,8 +18,14 @@ pub enum FilterError {
 }
 
 impl ResponseFilter {
-    /// Filters a response body, to be called once the body is buffered.
-    pub fn apply(self, claim: &Claim, body: &Bytes) -> Result<Bytes, FilterError> {
+    /// Filters a response body, to be called once the body is buffered. `zone` is the zone
+    /// addressed by the path, if any.
+    pub fn apply(
+        self,
+        claim: &Claim,
+        zone: Option<&str>,
+        body: &Bytes,
+    ) -> Result<Bytes, FilterError> {
         match self {
             Self::ZoneList => {
                 let mut zone_list = serde_json::from_slice::<pdns::ZoneList>(body)?;
@@ -29,14 +35,16 @@ impl ResponseFilter {
                 let body = serde_json::to_vec(&zone_list)?;
                 Ok(Bytes::from(body))
             }
-            Self::AcmeRrsets => {
-                let mut zone = serde_json::from_slice::<pdns::ZoneDetail>(body)?;
+            Self::Rrsets => {
+                let mut detail = serde_json::from_slice::<pdns::ZoneDetail>(body)?;
 
-                if let Some(rrsets) = &mut zone.rrsets {
-                    rrsets.retain(|r| claim.permits_acme_rrset(&r.name, &r.rtype));
+                if let Some(rrsets) = &mut detail.rrsets {
+                    rrsets.retain(|r| {
+                        zone.is_some_and(|z| claim.permits_rrset(z, &r.name, &r.rtype))
+                    });
                 }
 
-                let body = serde_json::to_vec(&zone)?;
+                let body = serde_json::to_vec(&detail)?;
                 Ok(Bytes::from(body))
             }
         }
@@ -46,19 +54,19 @@ impl ResponseFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::Permission;
+    use crate::claim::fixtures::claim;
+    use crate::permissions::fixtures::{acme, owner};
     use serde_json::{Value, json};
 
+    const ZONE: Option<&str> = Some("example.com.");
+
     fn test_claim(zone: &str) -> Claim {
-        Claim {
-            zone: zone.to_string(),
-            permission: Permission::Owner,
-        }
+        claim(vec![owner(zone)])
     }
 
     fn filter_zone_list(claim: &Claim, body: &Value) -> Value {
         let body = Bytes::from(serde_json::to_vec(body).unwrap());
-        let filtered = ResponseFilter::ZoneList.apply(claim, &body).unwrap();
+        let filtered = ResponseFilter::ZoneList.apply(claim, None, &body).unwrap();
         serde_json::from_slice(&filtered).unwrap()
     }
 
@@ -109,16 +117,13 @@ mod tests {
         let claim = test_claim("example.com");
         let body = Bytes::from_static(br#"{"name": "other.com."}"#);
 
-        let actual = ResponseFilter::ZoneList.apply(&claim, &body);
+        let actual = ResponseFilter::ZoneList.apply(&claim, None, &body);
 
         assert!(matches!(actual, Err(FilterError::Json(_))), "{actual:?}");
     }
 
     fn acme_claim() -> Claim {
-        Claim {
-            zone: "example.com".to_string(),
-            permission: Permission::Acme(vec!["www".to_string()]),
-        }
+        claim(vec![acme("example.com", &["www"])])
     }
 
     #[test]
@@ -130,13 +135,13 @@ mod tests {
         assert_eq!(actual, json!([{"name": "example.com."}]));
     }
 
-    mod acme_rrsets {
+    mod rrsets {
         use super::*;
 
         fn filter(body: &Value) -> Value {
             let body = Bytes::from(serde_json::to_vec(body).unwrap());
-            let filtered = ResponseFilter::AcmeRrsets
-                .apply(&acme_claim(), &body)
+            let filtered = ResponseFilter::Rrsets
+                .apply(&acme_claim(), ZONE, &body)
                 .unwrap();
             serde_json::from_slice(&filtered).unwrap()
         }
@@ -186,15 +191,31 @@ mod tests {
         }
 
         #[test]
-        fn drops_all_rrsets_for_owner() {
+        fn keeps_all_rrsets_for_owner() {
+            let body = json!({
+                "name": "example.com.",
+                "rrsets": [{"name": "www.example.com.", "type": "A"}]
+            });
+            let sample = Bytes::from(serde_json::to_vec(&body).unwrap());
+
+            let actual = ResponseFilter::Rrsets
+                .apply(&test_claim("example.com"), ZONE, &sample)
+                .unwrap();
+            let actual: Value = serde_json::from_slice(&actual).unwrap();
+
+            assert_eq!(actual, body);
+        }
+
+        #[test]
+        fn drops_all_rrsets_without_zone() {
             let body = json!({
                 "name": "example.com.",
                 "rrsets": [{"name": "_acme-challenge.www.example.com.", "type": "TXT"}]
             });
             let body = Bytes::from(serde_json::to_vec(&body).unwrap());
 
-            let actual = ResponseFilter::AcmeRrsets
-                .apply(&test_claim("example.com"), &body)
+            let actual = ResponseFilter::Rrsets
+                .apply(&acme_claim(), None, &body)
                 .unwrap();
             let actual: Value = serde_json::from_slice(&actual).unwrap();
 
@@ -205,7 +226,7 @@ mod tests {
         fn rejects_body_that_is_not_a_zone() {
             let body = Bytes::from_static(br#"[{"name": "example.com."}]"#);
 
-            let actual = ResponseFilter::AcmeRrsets.apply(&acme_claim(), &body);
+            let actual = ResponseFilter::Rrsets.apply(&acme_claim(), ZONE, &body);
 
             assert!(matches!(actual, Err(FilterError::Json(_))), "{actual:?}");
         }

@@ -1,139 +1,115 @@
 //! The payload of a token.
 
-use crate::dns::is_hostname;
 use crate::permissions::Permission;
 use serde::{Deserialize, Serialize};
 
+/// What the holder of a token may do. Kept small, the field and variant names are single letters,
+/// never change or reuse them. The field name `1` doubles as the version of the format.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "RawClaim", into = "RawClaim")]
+#[serde(deny_unknown_fields)]
 pub struct Claim {
-    /// without trailing dot
-    pub zone: String,
-    pub permission: Permission,
+    #[serde(rename = "1")]
+    pub permissions: Vec<Permission>,
 }
 
-impl Claim {
-    /// Fails for a claim that would not decode again.
-    pub fn validated(self) -> Result<Self, ClaimError> {
-        Self::try_from(RawClaim::from(self))
-    }
-}
+#[cfg(test)]
+pub mod fixtures {
+    use super::*;
 
-/// Numbers of the permissions in the token, never change or reuse them.
-const OWNER: u8 = 255;
-const ACME: u8 = 1;
-
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ClaimError {
-    #[error("unknown permission {0}")]
-    UnknownPermission(u8),
-    #[error("acme names are only allowed with the acme permission")]
-    UnexpectedAcmeNames,
-    #[error("the acme permission requires at least one name")]
-    MissingAcmeNames,
-    #[error("invalid acme name {0:?}")]
-    InvalidAcmeName(String),
-}
-
-/// The claim as it is encoded in the token, kept small.
-#[derive(Deserialize, Serialize)]
-struct RawClaim {
-    #[serde(rename = "z")]
-    zone: String,
-    #[serde(rename = "p")]
-    permission: u8,
-    #[serde(rename = "a", default, skip_serializing_if = "Vec::is_empty")]
-    acme: Vec<String>,
-}
-
-impl TryFrom<RawClaim> for Claim {
-    type Error = ClaimError;
-
-    fn try_from(raw: RawClaim) -> Result<Self, Self::Error> {
-        let permission = match raw.permission {
-            OWNER if raw.acme.is_empty() => Permission::Owner,
-            OWNER => return Err(ClaimError::UnexpectedAcmeNames),
-            ACME if raw.acme.is_empty() => return Err(ClaimError::MissingAcmeNames),
-            ACME => {
-                if let Some(name) = raw
-                    .acme
-                    .iter()
-                    .find(|name| !(*name == "@" || *name == "*" || is_hostname(name)))
-                {
-                    return Err(ClaimError::InvalidAcmeName(name.clone()));
-                }
-                Permission::Acme(raw.acme)
-            }
-            other => return Err(ClaimError::UnknownPermission(other)),
-        };
-
-        Ok(Self {
-            zone: raw.zone,
-            permission,
-        })
-    }
-}
-
-impl From<Claim> for RawClaim {
-    fn from(claim: Claim) -> Self {
-        let (permission, acme) = match claim.permission {
-            Permission::Owner => (OWNER, Vec::new()),
-            Permission::Acme(names) => (ACME, names),
-        };
-
-        Self {
-            zone: claim.zone,
-            permission,
-            acme,
-        }
+    pub fn claim(permissions: Vec<Permission>) -> Claim {
+        Claim { permissions }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::fixtures::claim;
     use super::*;
+    use crate::permissions::fixtures::{acme, names, owner, types, zone};
     use serde_json::{Value, json};
 
-    fn owner(zone: &str) -> Claim {
-        Claim {
-            zone: zone.to_string(),
-            permission: Permission::Owner,
-        }
+    fn all_variants() -> Claim {
+        claim(vec![
+            owner("example.com"),
+            Permission::AnyRecord(zone("example.org")),
+            Permission::Records(
+                zone("example.org"),
+                names(&["home", "@"]),
+                types(&["A", "AAAA"]),
+            ),
+            Permission::AnyName(zone("example.org"), types(&["TXT"])),
+            Permission::AnyType(zone("example.org"), names(&["*", "*.dev"])),
+            acme("example.org", &["www", "@"]),
+        ])
     }
 
-    fn acme(zone: &str, names: &[&str]) -> Claim {
-        Claim {
-            zone: zone.to_string(),
-            permission: Permission::Acme(names.iter().map(ToString::to_string).collect()),
-        }
+    fn all_variants_json() -> Value {
+        json!({"1": [
+            {"o": "example.com"},
+            {"x": "example.org"},
+            {"r": ["example.org", ["home", "@"], ["A", "AAAA"]]},
+            {"n": ["example.org", ["TXT"]]},
+            {"t": ["example.org", ["*", "*.dev"]]},
+            {"a": ["example.org", ["www", "@"]]}
+        ]})
     }
 
     #[test]
-    fn encodes_permissions_as_numbers() {
-        for (sample, expected) in [
-            (owner("example.com"), json!({"z": "example.com", "p": 255})),
-            (
-                acme("example.com", &["www", "@"]),
-                json!({"z": "example.com", "p": 1, "a": ["www", "@"]}),
-            ),
-        ] {
-            let actual = serde_json::to_value(&sample).unwrap();
+    fn encodes_permissions_compactly() {
+        let actual = serde_json::to_value(all_variants()).unwrap();
 
-            assert_eq!(actual, expected);
-        }
+        assert_eq!(actual, all_variants_json());
+    }
+
+    #[test]
+    fn decodes_all_variants() {
+        let actual: Claim = serde_json::from_value(all_variants_json()).unwrap();
+
+        assert_eq!(actual, all_variants());
     }
 
     #[test]
     fn decodes_permissions() {
         for (sample, expected) in [
-            (json!({"z": "example.com", "p": 255}), owner("example.com")),
             (
-                json!({"z": "example.com", "p": 255, "a": []}),
-                owner("example.com"),
+                json!({"1": [{"o": "example.com"}]}),
+                claim(vec![owner("example.com")]),
             ),
             (
-                json!({"z": "example.com", "p": 1, "a": ["www", "a.b", "@", "*", "_x-1"]}),
-                acme("example.com", &["www", "a.b", "@", "*", "_x-1"]),
+                json!({"1": [{"a": ["example.com", ["www", "a.b", "@", "*", "_x-1"]]}]}),
+                claim(vec![acme("example.com", &["www", "a.b", "@", "*", "_x-1"])]),
+            ),
+            (
+                json!({"1": [{"o": "example.com"}, {"o": "example.com"}]}),
+                claim(vec![owner("example.com"), owner("example.com")]),
+            ),
+        ] {
+            let actual: Claim = serde_json::from_value(sample).unwrap();
+
+            assert_eq!(actual, expected);
+        }
+    }
+
+    /// The contents are checked when a token is created, unexpected contents just do not match.
+    #[test]
+    fn decodes_without_checking_contents() {
+        for (sample, expected) in [
+            (json!({"1": []}), claim(vec![])),
+            (
+                json!({"1": [{"o": "Example.com."}]}),
+                claim(vec![owner("Example.com.")]),
+            ),
+            (
+                json!({"1": [{"a": ["", ["", "a..b"]]}]}),
+                claim(vec![acme("", &["", "a..b"])]),
+            ),
+            (
+                json!({"1": [{"r": ["example.com", [], ["a a"]]}]}),
+                claim(vec![Permission::Records(
+                    zone("example.com"),
+                    names(&[]),
+                    types(&["a a"]),
+                )]),
             ),
         ] {
             let actual: Claim = serde_json::from_value(sample).unwrap();
@@ -151,67 +127,64 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_permission() {
+    fn rejects_invalid_permissions() {
         rejects(&[
-            json!({"z": "example.com"}),
-            json!({"z": "example.com", "p": 0}),
-            json!({"z": "example.com", "p": 256}),
-            json!({"z": "example.com", "p": -1}),
-            json!({"z": "example.com", "p": "255"}),
-            json!({"z": "example.com", "p": null}),
+            json!({}),
+            json!({"1": null}),
+            json!({"1": {"o": "example.com"}}),
+            json!({"1": ["example.com"]}),
+            json!({"1": [{}]}),
+            json!({"1": [{"y": "example.com"}]}),
+            json!({"1": [{"o": "example.com", "a": ["example.com", ["www"]]}]}),
+        ]);
+    }
+
+    #[test]
+    fn rejects_unknown_fields() {
+        rejects(&[
+            json!({"1": [{"o": "example.com"}], "b": []}),
+            json!({"b": [{"o": "example.com"}]}),
+            json!({"z": "example.com", "p": 255}),
         ]);
     }
 
     #[test]
     fn rejects_invalid_zone() {
         rejects(&[
-            json!({"p": 255}),
-            json!({"z": ["example.com"], "p": 255}),
-            json!({"z": null, "p": 255}),
+            json!({"1": [{"o": null}]}),
+            json!({"1": [{"o": ["example.com"]}]}),
+            json!({"1": [{"a": [null, ["www"]]}]}),
         ]);
     }
 
     #[test]
-    fn rejects_names_for_owner() {
-        rejects(&[json!({"z": "example.com", "p": 255, "a": ["www"]})]);
-    }
-
-    #[test]
-    fn rejects_acme_without_names() {
+    fn rejects_invalid_acme_permission() {
         rejects(&[
-            json!({"z": "example.com", "p": 1}),
-            json!({"z": "example.com", "p": 1, "a": []}),
-            json!({"z": "example.com", "p": 1, "a": null}),
+            json!({"1": [{"a": "example.com"}]}),
+            json!({"1": [{"a": ["example.com"]}]}),
+            json!({"1": [{"a": ["example.com", null]}]}),
+            json!({"1": [{"a": ["example.com", "www"]}]}),
+            json!({"1": [{"a": ["example.com", ["www"], ["TXT"]]}]}),
         ]);
     }
 
     #[test]
-    fn rejects_invalid_acme_names() {
-        for name in [
-            "",
-            ".",
-            "www.",
-            ".www",
-            "a..b",
-            "WWW",
-            "*.www",
-            "www.*",
-            "@.www",
-            "a b",
-            "w\\119w",
-            "ä",
-            &"a".repeat(64),
-        ] {
-            rejects(&[json!({"z": "example.com", "p": 1, "a": ["www", name]})]);
-        }
+    fn rejects_invalid_records_permissions() {
+        rejects(&[
+            json!({"1": [{"x": ["example.com"]}]}),
+            json!({"1": [{"r": ["example.com", ["home"]]}]}),
+            json!({"1": [{"r": ["example.com", null, ["A"]]}]}),
+            json!({"1": [{"r": ["example.com", ["home"], null]}]}),
+            json!({"1": [{"n": ["example.com", ["A"], ["home"]]}]}),
+            json!({"1": [{"t": "example.com"}]}),
+        ]);
     }
 
     #[test]
     fn rejects_duplicate_fields() {
         for sample in [
-            r#"{"z": "example.com", "p": 1, "p": 255, "a": ["www"]}"#,
-            r#"{"z": "example.com", "p": 1, "a": ["www"], "a": ["*"]}"#,
-            r#"{"z": "example.com", "z": "example.org", "p": 255}"#,
+            r#"{"1": [{"o": "example.com"}], "1": [{"o": "example.org"}]}"#,
+            r#"{"1": [{"o": "example.com", "o": "example.org"}]}"#,
         ] {
             let actual = serde_json::from_str::<Claim>(sample);
 

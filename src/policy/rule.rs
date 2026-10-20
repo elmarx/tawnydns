@@ -19,7 +19,7 @@ pub enum Rule {
     Never,
     /// always allow
     Open,
-    /// allow if the route's zone is the zone of the claim
+    /// allow if the claim has a permission for the route's zone
     Zone,
     /// zone check, then filter the response for non-owners
     ZoneAndFilter(ResponseFilter),
@@ -44,8 +44,8 @@ impl Rule {
             (Rule::OwnerAndBody(kind), None) => granted_with_condition(kind),
             (_, None) => zone_denied(),
             (_, Some(z)) if !claim.is_zone(z) => zone_denied(),
-            (Rule::OwnerAndBody(kind), Some(z)) if claim.permits(z) => granted_with_condition(kind),
-            (_, Some(z)) if claim.permits(z) => granted(),
+            (Rule::OwnerAndBody(kind), Some(z)) if claim.owns(z) => granted_with_condition(kind),
+            (_, Some(z)) if claim.owns(z) => granted(),
             (Rule::Owner | Rule::OwnerAndBody(_), Some(_)) => permission_denied(),
             (Rule::Zone, Some(_)) => granted(),
             (Rule::ZoneAndFilter(kind), Some(_)) => granted_with_filter(kind),

@@ -54,6 +54,46 @@ pub enum KeyCmd {
     },
 }
 
+#[derive(clap::Args)]
+pub struct Scope {
+    /// Restrict the token to solving ACME DNS-01 challenges for this name, relative to the
+    /// zone: e.g. `www` for `www.<zone>`, `@` for the zone itself or `*` for any name in the
+    /// zone. Repeat for more names.
+    #[arg(
+        long = "acme",
+        value_name = "NAME",
+        conflicts_with_all = ["names", "any_name", "types", "any_type"]
+    )]
+    pub acme_names: Vec<String>,
+    /// Restrict the token to records with this name, relative to the zone: e.g. `www` for
+    /// `www.<zone>`, `@` for the zone itself or `*` for the wildcard record. Repeat for more
+    /// names. Requires `--type` or `--any-type`.
+    #[arg(long = "name", value_name = "NAME", conflicts_with = "any_name")]
+    pub names: Vec<String>,
+    /// records of any name, requires `--type` or `--any-type`
+    #[arg(long)]
+    pub any_name: bool,
+    /// Restrict the token to records of this type, e.g. `AAAA`. Repeat for more types. Requires
+    /// `--name` or `--any-name`.
+    #[arg(long = "type", value_name = "TYPE", conflicts_with = "any_type")]
+    pub types: Vec<String>,
+    /// records of any type, requires `--name` or `--any-name`
+    #[arg(long)]
+    pub any_type: bool,
+}
+
+impl From<Scope> for crate::token::Scope {
+    fn from(scope: Scope) -> Self {
+        Self {
+            acme_names: scope.acme_names,
+            names: scope.names,
+            any_name: scope.any_name,
+            types: scope.types,
+            any_type: scope.any_type,
+        }
+    }
+}
+
 #[derive(clap::Subcommand)]
 pub enum TokenCmd {
     /// create a token
@@ -62,11 +102,9 @@ pub enum TokenCmd {
         private_key: PathBuf,
         /// zone the token is valid for (a trailing dot is stripped, no further normalization)
         zone: String,
-        /// Restrict the token to solving ACME DNS-01 challenges for this name, relative to the
-        /// zone: e.g. `www` for `www.<zone>`, `@` for the zone itself or `*` for any name in the
-        /// zone. Repeat for more names. Without, the token has full access to the zone.
-        #[arg(long = "acme", value_name = "NAME")]
-        acme_names: Vec<String>,
+        /// what the token permits, without any of these options it has full access to the zone
+        #[command(flatten)]
+        scope: Scope,
     },
     /// inspect/validate a token
     Inspect {
@@ -75,4 +113,31 @@ pub enum TokenCmd {
         /// file containing the token, `-` for stdin
         token: PathBuf,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn verify_cli() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn scope_options_conflict() {
+        for sample in [
+            &["--acme", "www", "--type", "A"][..],
+            &["--acme", "www", "--any-name"],
+            &["--name", "a", "--any-name"],
+            &["--type", "A", "--any-type"],
+        ] {
+            let args = ["tawnydns", "token", "create", "example.com"];
+
+            let actual = Cli::try_parse_from(args.iter().chain(sample));
+
+            assert!(actual.is_err(), "{sample:?}");
+        }
+    }
 }

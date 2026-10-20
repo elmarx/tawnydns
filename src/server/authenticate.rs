@@ -71,8 +71,9 @@ pub async fn authenticate_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claim::fixtures::claim;
     use crate::keygen::generate;
-    use crate::permissions::Permission;
+    use crate::permissions::fixtures::owner;
     use axum::Router;
     use axum::body::to_bytes;
     use axum::middleware;
@@ -108,11 +109,9 @@ mod tests {
         headers
     }
 
+    /// a token owning `zone` (given without trailing dot)
     fn sign(key: &EncodingKey, zone: &str) -> String {
-        let claim = Claim {
-            zone: zone.to_string(),
-            permission: Permission::Owner,
-        };
+        let claim = claim(vec![owner(zone)]);
         jwt::encode(key, &claim).unwrap()
     }
 
@@ -202,20 +201,20 @@ mod tests {
         #[test]
         fn valid_token_is_identified_with_its_claim() {
             let (state, encoding_key) = state();
-            let sample = headers(X_API_KEY, &sign(&encoding_key, "example.com."));
+            let sample = headers(X_API_KEY, &sign(&encoding_key, "example.com"));
 
             let actual = identify(&sample, &state);
 
             let Ok(Principal::Token(actual)) = actual else {
                 panic!("expected a token principal");
             };
-            assert_eq!(actual.zone, "example.com.");
+            assert_eq!(actual, claim(vec![owner("example.com")]));
         }
 
         #[test]
         fn token_signed_by_other_key_is_rejected() {
             let (_, other_encoding_key) = state();
-            let sample = headers(X_API_KEY, &sign(&other_encoding_key, "example.com."));
+            let sample = headers(X_API_KEY, &sign(&other_encoding_key, "example.com"));
 
             let actual = identify(&sample, &state().0);
 
@@ -225,8 +224,8 @@ mod tests {
         #[test]
         fn token_with_tampered_payload_is_rejected() {
             let (state, encoding_key) = state();
-            let token = sign(&encoding_key, "example.com.");
-            let forged = sign(&encoding_key, "other.org.");
+            let token = sign(&encoding_key, "example.com");
+            let forged = sign(&encoding_key, "other.org");
             // header and signature of the first token, payload of the second
             let parts = |t: &str| t.split('.').map(String::from).collect::<Vec<_>>();
             let (token, forged) = (parts(&token), parts(&forged));
@@ -243,10 +242,7 @@ mod tests {
         #[test]
         fn token_with_other_algorithm_is_rejected() {
             let (state, _) = state();
-            let claim = Claim {
-                zone: "example.com.".into(),
-                permission: Permission::Owner,
-            };
+            let claim = claim(vec![owner("example.com")]);
             let hmac_key = jsonwebtoken::EncodingKey::from_secret(b"secret");
             let token =
                 jsonwebtoken::encode(&jsonwebtoken::Header::default(), &claim, &hmac_key).unwrap();
@@ -370,7 +366,7 @@ mod tests {
             let samples = [
                 request(None),
                 request(Some("garbage")),
-                request(Some(&sign(&other_key, "example.com."))),
+                request(Some(&sign(&other_key, "example.com"))),
             ];
 
             for sample in samples {
@@ -391,7 +387,7 @@ mod tests {
             let (state, _) = state();
             let samples = [
                 request(Some("garbage")),
-                request(Some(&sign(&other_key, "example.com."))),
+                request(Some(&sign(&other_key, "example.com"))),
             ];
 
             let mut actual = Vec::new();
@@ -418,7 +414,7 @@ mod tests {
         #[tokio::test]
         async fn valid_token_calls_next() {
             let (state, encoding_key) = state();
-            let sample = request(Some(&sign(&encoding_key, "example.com.")));
+            let sample = request(Some(&sign(&encoding_key, "example.com")));
 
             let actual = app(state).oneshot(sample).await.unwrap();
 
@@ -428,10 +424,12 @@ mod tests {
         #[tokio::test]
         async fn valid_token_hands_principal_to_next() {
             let (state, encoding_key) = state();
-            let sample = request(Some(&sign(&encoding_key, "example.com.")));
+            let sample = request(Some(&sign(&encoding_key, "example.com")));
             let app = Router::new()
                 .fallback(
-                    |axum::Extension(claim): axum::Extension<Claim>| async move { claim.zone },
+                    |axum::Extension(claim): axum::Extension<Claim>| async move {
+                        serde_json::to_string(&claim).unwrap()
+                    },
                 )
                 .layer(middleware::from_fn_with_state(
                     state,
@@ -441,7 +439,7 @@ mod tests {
             let actual = app.oneshot(sample).await.unwrap();
 
             let actual = body_string(actual).await;
-            assert_eq!(actual, "example.com.");
+            assert_eq!(actual, r#"{"1":[{"o":"example.com"}]}"#);
         }
     }
 }

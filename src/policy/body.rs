@@ -16,13 +16,14 @@ pub enum Error {
 pub enum BodyCheck {
     CreateZone,
     PutZone,
-    /// every rrset of a PATCH must be permitted by the acme permission
-    AcmeRrsets,
+    /// every rrset of a PATCH must be permitted by the claim
+    Rrsets,
 }
 
 impl BodyCheck {
-    /// Checks a request body, to be called once the body is buffered.
-    pub fn apply(self, claim: &Claim, body: &Bytes) -> Result<(), Error> {
+    /// Checks a request body, to be called once the body is buffered. `zone` is the zone addressed
+    /// by the path, if any.
+    pub fn apply(self, claim: &Claim, zone: Option<&str>, body: &Bytes) -> Result<(), Error> {
         match self {
             BodyCheck::CreateZone => {
                 let body = serde_json::from_slice::<pdns::zone::Create>(body)
@@ -36,7 +37,7 @@ impl BodyCheck {
                     return Err(Error::InvalidBody);
                 }
 
-                if claim.permits(&body.name) {
+                if claim.owns(&body.name) {
                     Ok(())
                 } else {
                     Err(Error::BodyRejected)
@@ -53,14 +54,18 @@ impl BodyCheck {
                     Ok(())
                 }
             }
-            BodyCheck::AcmeRrsets => {
+            BodyCheck::Rrsets => {
                 let body = serde_json::from_slice::<pdns::zone::Patch>(body)
                     .map_err(|_| Error::InvalidBody)?;
+
+                let Some(zone) = zone else {
+                    return Err(Error::BodyRejected);
+                };
 
                 if body
                     .rrsets
                     .iter()
-                    .all(|r| claim.permits_acme_rrset(&r.name, &r.rtype))
+                    .all(|r| claim.permits_rrset(zone, &r.name, &r.rtype))
                 {
                     Ok(())
                 } else {
@@ -74,14 +79,12 @@ impl BodyCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::permissions::Permission;
+    use crate::claim::fixtures::claim;
+    use crate::permissions::fixtures::{acme, owner};
 
     // Helper to create a test claim with given zone
     fn test_claim(zone: &str) -> Claim {
-        Claim {
-            zone: zone.to_string(),
-            permission: Permission::Owner,
-        }
+        claim(vec![owner(zone)])
     }
 
     mod create {
@@ -92,7 +95,7 @@ mod tests {
         fn rejects_name_without_trailing_dot() {
             let claim = test_claim("example.com");
             let body = Bytes::from_static(br#"{"name": "example.com"}"#);
-            let result = BodyCheck::CreateZone.apply(&claim, &body);
+            let result = BodyCheck::CreateZone.apply(&claim, None, &body);
             assert_eq!(result, Err(Error::InvalidBody));
         }
 
@@ -100,7 +103,7 @@ mod tests {
         fn accepts_valid_zone_name_in_claim() {
             let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"name": "example.com."}"#);
-            let result = BodyCheck::CreateZone.apply(&claim, &body);
+            let result = BodyCheck::CreateZone.apply(&claim, None, &body);
             assert!(result.is_ok());
         }
 
@@ -108,7 +111,7 @@ mod tests {
         fn rejects_zone_not_in_claim() {
             let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"name": "other.com."}"#);
-            let result = BodyCheck::CreateZone.apply(&claim, &body);
+            let result = BodyCheck::CreateZone.apply(&claim, None, &body);
             assert_eq!(result, Err(Error::BodyRejected));
         }
 
@@ -118,20 +121,19 @@ mod tests {
             let body = Bytes::from(
                 r#"{"name": "example.com.", "kind": "Slave", "masters": ["192.0.2.1"]}"#,
             );
-            let result = BodyCheck::CreateZone.apply(&claim, &body);
+            let result = BodyCheck::CreateZone.apply(&claim, None, &body);
             assert_eq!(result, Err(Error::BodyRejected));
         }
     }
 
-    mod acme_rrsets {
+    mod rrsets {
         use super::*;
         use serde_json::json;
 
+        const ZONE: Option<&str> = Some("example.com.");
+
         fn acme_claim() -> Claim {
-            Claim {
-                zone: "example.com".to_string(),
-                permission: Permission::Acme(vec!["www".to_string(), "@".to_string()]),
-            }
+            claim(vec![acme("example.com", &["www", "@"])])
         }
 
         fn patch(rrsets: &[(&str, &str)]) -> Bytes {
@@ -157,7 +159,7 @@ mod tests {
                 ("_acme-challenge.example.com.", "TXT"),
             ]);
 
-            let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+            let actual = BodyCheck::Rrsets.apply(&acme_claim(), ZONE, &sample);
 
             assert_eq!(actual, Ok(()));
         }
@@ -168,7 +170,7 @@ mod tests {
                 br#"{"rrsets": [{"name": "_acme-challenge.www.example.com.", "type": "TXT", "changetype": "DELETE"}]}"#,
             );
 
-            let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+            let actual = BodyCheck::Rrsets.apply(&acme_claim(), ZONE, &sample);
 
             assert_eq!(actual, Ok(()));
         }
@@ -184,17 +186,35 @@ mod tests {
             ] {
                 let sample = patch(&[("_acme-challenge.www.example.com.", "TXT"), rrset]);
 
-                let actual = BodyCheck::AcmeRrsets.apply(&acme_claim(), &sample);
+                let actual = BodyCheck::Rrsets.apply(&acme_claim(), ZONE, &sample);
 
                 assert_eq!(actual, Err(Error::BodyRejected), "{rrset:?}");
             }
         }
 
         #[test]
-        fn rejects_owner() {
+        fn accepts_owner() {
+            let sample = patch(&[("www.example.com.", "A")]);
+
+            let actual = BodyCheck::Rrsets.apply(&test_claim("example.com"), ZONE, &sample);
+
+            assert_eq!(actual, Ok(()));
+        }
+
+        #[test]
+        fn rejects_rrsets_permitted_for_other_zone() {
             let sample = patch(&[("_acme-challenge.www.example.com.", "TXT")]);
 
-            let actual = BodyCheck::AcmeRrsets.apply(&test_claim("example.com"), &sample);
+            let actual = BodyCheck::Rrsets.apply(&acme_claim(), Some("example.org."), &sample);
+
+            assert_eq!(actual, Err(Error::BodyRejected));
+        }
+
+        #[test]
+        fn rejects_without_zone() {
+            let sample = patch(&[("_acme-challenge.www.example.com.", "TXT")]);
+
+            let actual = BodyCheck::Rrsets.apply(&acme_claim(), None, &sample);
 
             assert_eq!(actual, Err(Error::BodyRejected));
         }
@@ -208,7 +228,7 @@ mod tests {
                 b"",
             ] {
                 let actual =
-                    BodyCheck::AcmeRrsets.apply(&acme_claim(), &Bytes::copy_from_slice(sample));
+                    BodyCheck::Rrsets.apply(&acme_claim(), ZONE, &Bytes::copy_from_slice(sample));
 
                 assert_eq!(actual, Err(Error::InvalidBody));
             }
@@ -222,7 +242,7 @@ mod tests {
         fn accepts_valid_body_without_kind_or_masters() {
             let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"dnssec": false, "serial": 2021010101}"#);
-            let result = BodyCheck::PutZone.apply(&claim, &body);
+            let result = BodyCheck::PutZone.apply(&claim, None, &body);
             assert!(result.is_ok());
         }
 
@@ -230,7 +250,7 @@ mod tests {
         fn rejects_kind_modification() {
             let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"kind": "Slave"}"#);
-            let result = BodyCheck::PutZone.apply(&claim, &body);
+            let result = BodyCheck::PutZone.apply(&claim, None, &body);
             assert_eq!(result, Err(Error::BodyRejected));
         }
 
@@ -238,7 +258,7 @@ mod tests {
         fn rejects_masters_modification() {
             let claim = test_claim("example.com");
             let body = Bytes::from(r#"{"masters": ["8.8.8.8"]}"#);
-            let result = BodyCheck::PutZone.apply(&claim, &body);
+            let result = BodyCheck::PutZone.apply(&claim, None, &body);
             assert_eq!(result, Err(Error::BodyRejected));
         }
     }

@@ -32,7 +32,7 @@ pub async fn handle(
             .await
             .map_err(|e| Error::from_request_body(&e))?;
 
-        body_check.apply(&claim, &bytes)?;
+        body_check.apply(&claim, route.zone(), &bytes)?;
         Request::from_parts(parts, Body::from(bytes))
     } else {
         req
@@ -54,7 +54,7 @@ pub async fn handle(
             .await
             .map_err(Error::UpstreamBody)?;
 
-        let filtered_response = response_filter.apply(&claim, &body)?;
+        let filtered_response = response_filter.apply(&claim, route.zone(), &body)?;
 
         // remove the content-length and etag (since we have filtered/modified the body)
         parts.headers.remove(http::header::CONTENT_LENGTH);

@@ -49,9 +49,9 @@ async fn main() -> eros::Result<(), AnyError> {
                 TokenCmd::Create {
                     private_key,
                     zone,
-                    acme_names,
+                    scope,
                 },
-        } => println!("{}", token::create(private_key, zone, &acme_names)?),
+        } => println!("{}", token::create(private_key, zone, &scope.into())?),
         cli::Cmd::Token {
             command: TokenCmd::Inspect { public_key, token },
         } => {

@@ -12,8 +12,8 @@ impl From<&Route> for Rule {
             Route::ListApiVersions | Route::ListServers | Route::GetServer { .. } => Self::Open,
 
             Route::ListZones { .. } => Self::FilteredList(ResponseFilter::ZoneList),
-            Route::GetZone { .. } => Self::ZoneAndFilter(ResponseFilter::AcmeRrsets),
-            Route::PatchZone { .. } => Self::ZoneAndBody(BodyCheck::AcmeRrsets),
+            Route::GetZone { .. } => Self::ZoneAndFilter(ResponseFilter::Rrsets),
+            Route::PatchZone { .. } => Self::ZoneAndBody(BodyCheck::Rrsets),
             Route::NotifyZone { .. } => Self::Zone,
 
             Route::CreateZone { .. } => Self::OwnerAndBody(BodyCheck::CreateZone),

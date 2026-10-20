@@ -14,7 +14,7 @@ tawnydns adds support for tenants.
 
 tawnydns sits in front of the PowerDNS API and is transparent to clients. It accepts the `X-API-Key` header, but instead of a single API key, each tenant gets its own. If the tenant is authorized, tawnydns replaces the key with the real one.
 
-Tenant API keys are JWTs for a single zone, granting either full access to the zone or only what's needed to solve ACME DNS-01 challenges.
+Tenant API keys are JWTs with a list of permissions per zone: full access to the zone, access to some of its records, or only what's needed to solve ACME DNS-01 challenges.
 
 For every request, tawnydns:
 
@@ -43,6 +43,13 @@ A token can be restricted to ACME DNS-01 challenges (the TXT records `_acme-chal
 
 ```bash
 tawnydns token create example.com --acme www --acme @
+```
+
+A token can also be restricted to records by name (relative to the zone, `@` is the zone itself, `*` the wildcard record) and type. Use `--any-name` or `--any-type` to lift one of the restrictions, both together grant all records, but not the zone itself (e.g. deleting it).
+
+```bash
+tawnydns token create example.com --name home --name nas --type A --type AAAA
+tawnydns token create example.com --any-name --type TXT
 ```
 
 ### Server

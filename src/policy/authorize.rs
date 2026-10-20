@@ -1,7 +1,7 @@
 use crate::claim::Claim;
 use crate::dns::is_hostname;
 use crate::pdns::Route;
-use crate::permissions::Permission;
+use crate::permissions::{AcmeName, Permission, Zone};
 use crate::policy::rule::Rule;
 use crate::policy::{Denied, Grant};
 
@@ -13,101 +13,118 @@ pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
 const ACME_CHALLENGE: &str = "_acme-challenge";
 
 impl Claim {
-    /// `zone` is the zone of the claim, whatever the permission. Exact match, a claim for
-    /// `example.com` does not cover `sub.example.com.`. The claim holds the zone without trailing
-    /// dot, a single trailing dot of `zone` is ignored.
+    /// Any permission of the claim is for `zone` (see [`Zone::matches`]).
     pub fn is_zone(&self, zone: &str) -> bool {
-        let zone = zone.strip_suffix('.').unwrap_or(zone);
-        self.zone == zone
+        self.permissions.iter().any(|p| p.zone().matches(zone))
     }
 
-    /// Full access to `zone`: the claim is an owner of exactly this zone.
-    pub fn permits(&self, zone: &str) -> bool {
-        self.permission == Permission::Owner && self.is_zone(zone)
+    /// Full access to `zone`: the claim has the owner permission for exactly this zone.
+    pub fn owns(&self, zone: &str) -> bool {
+        self.permissions
+            .iter()
+            .any(|p| matches!(p, Permission::Owner(z) if z.matches(zone)))
     }
 
-    /// The rrset `name`/`rtype` is a TXT record `_acme-challenge.<name>` for a name of the acme
-    /// permission, in the zone of the claim. `name` must be canonical (with trailing dot), names
-    /// and types are case-insensitive. Escapes are never permitted, so the name is compared as
-    /// pdns parses it.
-    pub fn permits_acme_rrset(&self, name: &str, rtype: &str) -> bool {
-        let Permission::Acme(names) = &self.permission else {
-            return false;
-        };
-        let Some(name) = name.strip_suffix('.') else {
-            return false;
-        };
-        if !rtype.eq_ignore_ascii_case("TXT") || name.contains('\\') {
-            return false;
+    /// The rrset `name`/`rtype` of `zone` may be read and changed. `name` must be canonical (with
+    /// trailing dot).
+    pub fn permits_rrset(&self, zone: &str, name: &str, rtype: &str) -> bool {
+        self.permissions
+            .iter()
+            .any(|p| p.permits_rrset(zone, name, rtype))
+    }
+}
+
+impl Permission {
+    fn permits_rrset(&self, zone: &str, name: &str, rtype: &str) -> bool {
+        match self {
+            Permission::Owner(z) => z.matches(zone),
+            Permission::Acme(z, names) => {
+                z.matches(zone) && permits_acme_rrset(z, names, name, rtype)
+            }
+            Permission::AnyRecord(_)
+            | Permission::Records(..)
+            | Permission::AnyName(..)
+            | Permission::AnyType(..) => todo!(),
         }
-
-        let name = name.to_ascii_lowercase();
-        let zone = self.zone.to_ascii_lowercase();
-        let Some(relative) = name
-            .strip_prefix(ACME_CHALLENGE)
-            .and_then(|n| n.strip_prefix('.'))
-        else {
-            return false;
-        };
-
-        // the name below `_acme-challenge`, relative to the zone, `None` for the apex
-        let relative = if relative == zone {
-            None
-        } else if let Some(relative) = relative.strip_suffix(&format!(".{zone}")) {
-            Some(relative)
-        } else {
-            return false;
-        };
-
-        names.iter().any(|n| match (n.as_str(), relative) {
-            ("@" | "*", None) => true,
-            // plain hostname labels only, the same as for names of the permission
-            ("*", Some(relative)) => is_hostname(relative),
-            ("@", Some(_)) | (_, None) => false,
-            (n, Some(relative)) => n == relative,
-        })
     }
+}
+
+/// The rrset `name`/`rtype` is a TXT record `_acme-challenge.<name>` for one of `names`, in `zone`.
+/// `name` must be canonical (with trailing dot), names and types are case-insensitive. Escapes are
+/// never permitted, so the name is compared as pdns parses it.
+fn permits_acme_rrset(zone: &Zone, names: &[AcmeName], name: &str, rtype: &str) -> bool {
+    let Some(name) = name.strip_suffix('.') else {
+        return false;
+    };
+    if !rtype.eq_ignore_ascii_case("TXT") || name.contains('\\') {
+        return false;
+    }
+
+    let name = name.to_ascii_lowercase();
+    let zone = zone.as_str().to_ascii_lowercase();
+    let Some(relative) = name
+        .strip_prefix(ACME_CHALLENGE)
+        .and_then(|n| n.strip_prefix('.'))
+    else {
+        return false;
+    };
+
+    // the name below `_acme-challenge`, relative to the zone, `None` for the apex
+    let relative = if relative == zone {
+        None
+    } else if let Some(relative) = relative.strip_suffix(&format!(".{zone}")) {
+        Some(relative)
+    } else {
+        return false;
+    };
+
+    // plain hostname labels only, the same as for names of the permission
+    if relative.is_some_and(|relative| !is_hostname(relative)) {
+        return false;
+    }
+
+    names.iter().any(|n| match (n.as_str(), relative) {
+        ("@" | "*", None) | ("*", Some(_)) => true,
+        (n, Some(relative)) => n == relative,
+        (_, None) => false,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claim::fixtures::claim;
+    use crate::permissions::fixtures::{acme, owner};
 
-    fn claim(zone: &str) -> Claim {
-        Claim {
-            zone: zone.to_string(),
-            permission: Permission::Owner,
-        }
+    fn owner_claim(zone: &str) -> Claim {
+        claim(vec![owner(zone)])
     }
 
     fn acme_claim(names: &[&str]) -> Claim {
-        Claim {
-            zone: "example.com".to_string(),
-            permission: Permission::Acme(names.iter().map(ToString::to_string).collect()),
-        }
+        claim(vec![acme("example.com", names)])
     }
 
     #[test]
-    fn permits_zone_of_claim() {
-        assert!(&claim("example.com").permits("example.com"));
+    fn owns_zone_of_claim() {
+        assert!(owner_claim("example.com").owns("example.com"));
     }
 
     #[test]
-    fn permits_zone_of_claim_with_trailing_dot() {
-        assert!(&claim("example.com").permits("example.com."));
+    fn owns_zone_of_claim_with_trailing_dot() {
+        assert!(owner_claim("example.com").owns("example.com."));
     }
 
     #[test]
-    fn rejects_zone_not_in_claim() {
-        let claim = claim("example.com");
+    fn does_not_own_zone_not_in_claim() {
+        let claim = owner_claim("example.com");
 
-        assert!(!claim.permits("example.org."));
-        assert!(!&claim.permits("sub.example.com."));
+        assert!(!claim.owns("example.org."));
+        assert!(!claim.owns("sub.example.com."));
     }
 
     #[test]
-    fn rejects_different_case() {
-        assert!(!claim("example.com").permits("Example.COM."));
+    fn does_not_own_different_case() {
+        assert!(!owner_claim("example.com").owns("Example.COM."));
     }
 
     #[test]
@@ -116,7 +133,55 @@ mod tests {
 
         assert!(sample.is_zone("example.com."));
         assert!(!sample.is_zone("example.org."));
-        assert!(!sample.permits("example.com."));
+        assert!(!sample.owns("example.com."));
+    }
+
+    #[test]
+    fn permissions_add_up() {
+        let sample = claim(vec![owner("example.com"), acme("example.org", &["www"])]);
+
+        assert!(sample.is_zone("example.com."));
+        assert!(sample.is_zone("example.org."));
+        assert!(!sample.is_zone("example.net."));
+        assert!(sample.owns("example.com."));
+        assert!(!sample.owns("example.org."));
+    }
+
+    mod rrset {
+        use super::*;
+
+        #[test]
+        fn owner_permits_any_rrset_of_its_zone() {
+            let sample = owner_claim("example.com");
+
+            assert!(sample.permits_rrset("example.com.", "www.example.com.", "A"));
+            assert!(sample.permits_rrset("example.com.", "example.com.", "SOA"));
+            assert!(!sample.permits_rrset("example.org.", "www.example.org.", "A"));
+        }
+
+        #[test]
+        fn checks_names_against_permissions_of_the_given_zone_only() {
+            let sample = claim(vec![
+                acme("example.com", &["*"]),
+                acme("sub.example.com", &["www"]),
+            ]);
+
+            assert!(sample.permits_rrset(
+                "sub.example.com.",
+                "_acme-challenge.www.sub.example.com.",
+                "TXT"
+            ));
+            assert!(!sample.permits_rrset(
+                "sub.example.com.",
+                "_acme-challenge.other.sub.example.com.",
+                "TXT"
+            ));
+            assert!(sample.permits_rrset(
+                "example.com.",
+                "_acme-challenge.other.sub.example.com.",
+                "TXT"
+            ));
+        }
     }
 
     mod acme_rrset {
@@ -126,7 +191,7 @@ mod tests {
             let claim = acme_claim(names);
             for (name, rtype) in rrsets {
                 assert!(
-                    claim.permits_acme_rrset(name, rtype),
+                    claim.permits_rrset("example.com.", name, rtype),
                     "{names:?}: {name} {rtype}"
                 );
             }
@@ -136,7 +201,7 @@ mod tests {
             let claim = acme_claim(names);
             for (name, rtype) in rrsets {
                 assert!(
-                    !claim.permits_acme_rrset(name, rtype),
+                    !claim.permits_rrset("example.com.", name, rtype),
                     "{names:?}: {name} {rtype}"
                 );
             }
@@ -250,10 +315,25 @@ mod tests {
         }
 
         #[test]
-        fn owner_has_no_acme_permission() {
-            assert!(
-                !claim("example.com").permits_acme_rrset("_acme-challenge.example.com.", "TXT")
+        fn unexpected_names_of_the_token_do_not_match() {
+            assert_rejects(
+                &["", "a..b", "*.www", "WWW", "www."],
+                &[
+                    ("_acme-challenge..example.com.", "TXT"),
+                    ("_acme-challenge.a..b.example.com.", "TXT"),
+                    ("_acme-challenge.*.www.example.com.", "TXT"),
+                    ("_acme-challenge.www.example.com.", "TXT"),
+                    ("_acme-challenge.WWW.example.com.", "TXT"),
+                    ("_acme-challenge.www..example.com.", "TXT"),
+                ],
             );
+        }
+
+        #[test]
+        fn acme_of_other_zone_is_not_permitted() {
+            let sample = claim(vec![acme("example.org", &["*"])]);
+
+            assert!(!sample.permits_rrset("example.com.", "_acme-challenge.example.com.", "TXT"));
         }
     }
 
@@ -293,12 +373,12 @@ mod tests {
                 (
                     http::Method::GET,
                     "/api/v1/servers/localhost/zones/example.com.",
-                    grant(None, Some(ResponseFilter::AcmeRrsets)),
+                    grant(None, Some(ResponseFilter::Rrsets)),
                 ),
                 (
                     http::Method::PATCH,
                     "/api/v1/servers/localhost/zones/example.com.",
-                    grant(Some(BodyCheck::AcmeRrsets), None),
+                    grant(Some(BodyCheck::Rrsets), None),
                 ),
                 (
                     http::Method::PUT,
@@ -391,6 +471,88 @@ mod tests {
                 let actual = authorize_acme(&method, path);
 
                 assert_eq!(actual, Err(Denied::Route), "{method} {path}");
+            }
+        }
+    }
+
+    mod mixed_routes {
+        use super::*;
+        use crate::policy::{BodyCheck, ResponseFilter};
+
+        fn authorize_mixed(method: &http::Method, path: &str) -> Result<Grant, Denied> {
+            let sample = claim(vec![owner("example.com"), acme("example.org", &["www"])]);
+            let route = Route::try_from((method, path)).unwrap();
+            authorize(&sample, &route)
+        }
+
+        #[test]
+        fn grants_per_zone() {
+            let grant = |body_condition, filter| {
+                Ok(Grant {
+                    body_condition,
+                    filter,
+                })
+            };
+            for (method, path, expected) in [
+                (
+                    http::Method::GET,
+                    "/api/v1/servers/localhost/zones",
+                    grant(None, Some(ResponseFilter::ZoneList)),
+                ),
+                (
+                    http::Method::POST,
+                    "/api/v1/servers/localhost/zones",
+                    grant(Some(BodyCheck::CreateZone), None),
+                ),
+                (
+                    http::Method::GET,
+                    "/api/v1/servers/localhost/zones/example.com.",
+                    grant(None, None),
+                ),
+                (
+                    http::Method::DELETE,
+                    "/api/v1/servers/localhost/zones/example.com.",
+                    grant(None, None),
+                ),
+                (
+                    http::Method::GET,
+                    "/api/v1/servers/localhost/zones/example.org.",
+                    grant(None, Some(ResponseFilter::Rrsets)),
+                ),
+                (
+                    http::Method::PATCH,
+                    "/api/v1/servers/localhost/zones/example.org.",
+                    grant(Some(BodyCheck::Rrsets), None),
+                ),
+                (
+                    http::Method::DELETE,
+                    "/api/v1/servers/localhost/zones/example.org.",
+                    Err(Denied::Permission),
+                ),
+                (
+                    http::Method::PUT,
+                    "/api/v1/servers/localhost/zones/example.com.",
+                    grant(Some(BodyCheck::PutZone), None),
+                ),
+                (
+                    http::Method::PUT,
+                    "/api/v1/servers/localhost/zones/example.org.",
+                    Err(Denied::Permission),
+                ),
+                (
+                    http::Method::GET,
+                    "/api/v1/servers/localhost/zones/example.net.",
+                    Err(Denied::Zone),
+                ),
+                (
+                    http::Method::DELETE,
+                    "/api/v1/servers/localhost/zones/example.net.",
+                    Err(Denied::Zone),
+                ),
+            ] {
+                let actual = authorize_mixed(&method, path);
+
+                assert_eq!(actual, expected, "{method} {path}");
             }
         }
     }
