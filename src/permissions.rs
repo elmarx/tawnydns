@@ -87,6 +87,10 @@ impl Name {
     pub fn new(name: String) -> Self {
         Self(name)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// A record type, uppercase like `AAAA`, or generic like `TYPE65534`. Any type is accepted, pdns
@@ -98,6 +102,10 @@ pub struct RrType(String);
 impl RrType {
     pub fn new(rtype: String) -> Self {
         Self(rtype)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

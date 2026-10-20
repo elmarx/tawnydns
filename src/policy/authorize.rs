@@ -1,7 +1,7 @@
 use crate::claim::Claim;
 use crate::dns::is_hostname;
 use crate::pdns::Route;
-use crate::permissions::{AcmeName, Permission, Zone};
+use crate::permissions::{AcmeName, Name, Permission, RrType, Zone};
 use crate::policy::rule::Rule;
 use crate::policy::{Denied, Grant};
 
@@ -36,17 +36,70 @@ impl Claim {
 
 impl Permission {
     fn permits_rrset(&self, zone: &str, name: &str, rtype: &str) -> bool {
+        if !self.zone().matches(zone) {
+            return false;
+        }
         match self {
-            Permission::Owner(z) => z.matches(zone),
-            Permission::Acme(z, names) => {
-                z.matches(zone) && permits_acme_rrset(z, names, name, rtype)
+            Permission::Owner(z) | Permission::AnyRecord(z) => relative_name(z, name).is_some(),
+            Permission::Records(z, names, types) => {
+                permits_type(types, rtype) && permits_name(z, names, name)
             }
-            Permission::AnyRecord(_)
-            | Permission::Records(..)
-            | Permission::AnyName(..)
-            | Permission::AnyType(..) => todo!(),
+            Permission::AnyName(z, types) => {
+                permits_type(types, rtype) && relative_name(z, name).is_some()
+            }
+            Permission::AnyType(z, names) => permits_name(z, names, name),
+            Permission::Acme(z, names) => permits_acme_rrset(z, names, name, rtype),
         }
     }
+}
+
+/// A name of a zone, relative to the zone.
+#[derive(Debug, PartialEq, Eq)]
+enum Relative {
+    Apex,
+    /// lowercase, without trailing dot, no empty labels
+    Name(String),
+}
+
+/// `name` relative to `zone`, `None` if it's not part of the zone. `name` must be canonical (with
+/// trailing dot) and is case-insensitive. Escapes are never permitted, so the name is compared as
+/// pdns parses it.
+fn relative_name(zone: &Zone, name: &str) -> Option<Relative> {
+    let name = name.strip_suffix('.')?;
+    if name.contains('\\') {
+        return None;
+    }
+
+    let name = name.to_ascii_lowercase();
+    let zone = zone.as_str().to_ascii_lowercase();
+    if name == zone {
+        return Some(Relative::Apex);
+    }
+
+    let relative = name.strip_suffix(&format!(".{zone}"))?;
+    if relative.split('.').any(str::is_empty) {
+        None
+    } else {
+        Some(Relative::Name(relative.to_string()))
+    }
+}
+
+/// `name` (canonical, with trailing dot) is one of `names` of `zone`. `@` is the apex only, a
+/// wildcard name only the wildcard record.
+fn permits_name(zone: &Zone, names: &[Name], name: &str) -> bool {
+    let Some(relative) = relative_name(zone, name) else {
+        return false;
+    };
+    names.iter().any(|n| match (n.as_str(), &relative) {
+        ("@", relative) => *relative == Relative::Apex,
+        (_, Relative::Apex) => false,
+        (n, Relative::Name(relative)) => n == relative,
+    })
+}
+
+/// Types are case-insensitive.
+fn permits_type(types: &[RrType], rtype: &str) -> bool {
+    types.iter().any(|t| t.as_str().eq_ignore_ascii_case(rtype))
 }
 
 /// The rrset `name`/`rtype` is a TXT record `_acme-challenge.<name>` for one of `names`, in `zone`.
@@ -181,6 +234,132 @@ mod tests {
                 "_acme-challenge.other.sub.example.com.",
                 "TXT"
             ));
+        }
+    }
+
+    mod records_rrset {
+        use super::*;
+        use crate::permissions::fixtures::{names, types, zone};
+
+        const ZONE: &str = "example.com.";
+
+        fn records(names_: &[&str], types_: &[&str]) -> Claim {
+            claim(vec![Permission::Records(
+                zone("example.com"),
+                names(names_),
+                types(types_),
+            )])
+        }
+
+        #[test]
+        fn records_permits_names_and_types() {
+            let sample = records(&["home", "@", "a.b"], &["A", "AAAA"]);
+
+            for (name, rtype) in [
+                ("home.example.com.", "A"),
+                ("home.example.com.", "AAAA"),
+                ("Home.Example.COM.", "aaaa"),
+                ("example.com.", "A"),
+                ("a.b.example.com.", "A"),
+            ] {
+                assert!(sample.permits_rrset(ZONE, name, rtype), "{name} {rtype}");
+            }
+        }
+
+        #[test]
+        fn records_rejects_other_names_and_types() {
+            let sample = records(&["home", "@"], &["A"]);
+
+            for (name, rtype) in [
+                ("home.example.com.", "AAAA"),
+                ("home.example.com.", "TXT"),
+                ("other.example.com.", "A"),
+                ("x.home.example.com.", "A"),
+                ("@.example.com.", "A"),
+                ("*.example.com.", "A"),
+                ("home.example.org.", "A"),
+                ("home.example.com", "A"),
+                ("home..example.com.", "A"),
+                ("ho\\109e.example.com.", "A"),
+                ("homeexample.com.", "A"),
+            ] {
+                assert!(!sample.permits_rrset(ZONE, name, rtype), "{name} {rtype}");
+            }
+        }
+
+        #[test]
+        fn records_wildcard_name_is_the_wildcard_record() {
+            let sample = records(&["*", "*.dev"], &["A"]);
+
+            assert!(sample.permits_rrset(ZONE, "*.example.com.", "A"));
+            assert!(sample.permits_rrset(ZONE, "*.dev.example.com.", "A"));
+            assert!(!sample.permits_rrset(ZONE, "www.example.com.", "A"));
+            assert!(!sample.permits_rrset(ZONE, "example.com.", "A"));
+            assert!(!sample.permits_rrset(ZONE, "x.dev.example.com.", "A"));
+        }
+
+        #[test]
+        fn unexpected_names_of_the_token_do_not_match() {
+            let sample = records(&["", "WWW", "home.", "a..b"], &["A"]);
+
+            for name in [
+                "example.com.",
+                ".example.com.",
+                "www.example.com.",
+                "WWW.example.com.",
+                "home.example.com.",
+                "home..example.com.",
+                "a..b.example.com.",
+            ] {
+                assert!(!sample.permits_rrset(ZONE, name, "A"), "{name}");
+            }
+        }
+
+        #[test]
+        fn any_name_permits_types_of_all_names() {
+            let sample = claim(vec![Permission::AnyName(
+                zone("example.com"),
+                types(&["TXT"]),
+            )]);
+
+            for name in ["example.com.", "www.example.com.", "*.a.b.example.com."] {
+                assert!(sample.permits_rrset(ZONE, name, "TXT"), "{name}");
+            }
+            for (name, rtype) in [
+                ("www.example.com.", "A"),
+                ("www.example.org.", "TXT"),
+                ("w\\119w.example.com.", "TXT"),
+            ] {
+                assert!(!sample.permits_rrset(ZONE, name, rtype), "{name} {rtype}");
+            }
+        }
+
+        #[test]
+        fn any_type_permits_all_types_of_names() {
+            let sample = claim(vec![Permission::AnyType(
+                zone("example.com"),
+                names(&["home"]),
+            )]);
+
+            for rtype in ["A", "TXT", "NS", "CNAME"] {
+                assert!(
+                    sample.permits_rrset(ZONE, "home.example.com.", rtype),
+                    "{rtype}"
+                );
+            }
+            assert!(!sample.permits_rrset(ZONE, "www.example.com.", "A"));
+            assert!(!sample.permits_rrset(ZONE, "example.com.", "A"));
+        }
+
+        #[test]
+        fn any_record_permits_all_records_of_the_zone() {
+            let sample = claim(vec![Permission::AnyRecord(zone("example.com"))]);
+
+            assert!(sample.permits_rrset(ZONE, "example.com.", "SOA"));
+            assert!(sample.permits_rrset(ZONE, "www.example.com.", "A"));
+            assert!(!sample.permits_rrset(ZONE, "www.example.org.", "A"));
+            assert!(!sample.permits_rrset("example.org.", "www.example.org.", "A"));
+            assert!(!sample.owns(ZONE));
         }
     }
 
