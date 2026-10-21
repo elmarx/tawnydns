@@ -5,7 +5,7 @@ mod claim;
 mod cli;
 mod content_type;
 mod dns;
-#[cfg_attr(not(test), expect(dead_code, reason = "not used by an endpoint yet"))]
+#[expect(dead_code, reason = "not used by an endpoint yet")]
 mod dyndns;
 mod jwt;
 mod keypair;
