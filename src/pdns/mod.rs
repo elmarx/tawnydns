@@ -1,3 +1,4 @@
+#[expect(dead_code, reason = "not used by an endpoint yet")]
 pub mod client;
 mod route;
 #[expect(dead_code, reason = "not used by the body checks yet")]
