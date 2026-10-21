@@ -9,6 +9,10 @@ pub enum Denied {
     /// zone-scoped operation on a zone that is not part of the claim
     #[error("zone is not part of the token")]
     Zone,
+
+    /// the token has a permission for the zone (or the API), but none that permits the operation
+    #[error("operation is not permitted by the token")]
+    Permission,
 }
 
 #[derive(Debug, PartialEq, Eq)]

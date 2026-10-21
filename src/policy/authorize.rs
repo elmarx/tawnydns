@@ -5,12 +5,7 @@ use crate::token::{Claim, Permission, validate_acme_name};
 
 /// Decides what a token holder may do with a request. Admin never gets here.
 pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
-    let rule = match claim.permission {
-        Permission::Owner => Rule::owner(route),
-        Permission::Acme(_) => Rule::acme(route),
-    };
-
-    rule.apply(claim, route.zone())
+    Rule::from(route).apply(claim, route.zone())
 }
 
 const ACME_CHALLENGE: &str = "_acme-challenge";
@@ -346,7 +341,6 @@ mod tests {
         #[test]
         fn denies_zone_management() {
             for (method, path) in [
-                (http::Method::POST, "/api/v1/servers/localhost/zones"),
                 (
                     http::Method::PUT,
                     "/api/v1/servers/localhost/zones/example.com.",
@@ -363,6 +357,27 @@ mod tests {
                     http::Method::PUT,
                     "/api/v1/servers/localhost/zones/example.com./rectify",
                 ),
+            ] {
+                let actual = authorize_acme(&method, path);
+
+                assert_eq!(actual, Err(Denied::Permission), "{method} {path}");
+            }
+        }
+
+        #[test]
+        fn leaves_creating_a_zone_to_the_body_check() {
+            let actual = authorize_acme(&http::Method::POST, "/api/v1/servers/localhost/zones");
+
+            let expected = Grant {
+                body_condition: Some(BodyCheck::CreateZone),
+                filter: None,
+            };
+            assert_eq!(actual, Ok(expected));
+        }
+
+        #[test]
+        fn denies_routes_never_permitted() {
+            for (method, path) in [
                 (
                     http::Method::GET,
                     "/api/v1/servers/localhost/zones/example.com./metadata",

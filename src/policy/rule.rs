@@ -3,9 +3,16 @@
 use crate::policy::grant::{Denied, Grant};
 use crate::policy::{BodyCheck, ResponseFilter};
 use crate::token::Claim;
-use dsl::{granted, granted_with_condition, granted_with_filter, route_denied, zone_denied};
+use dsl::{
+    granted, granted_with_condition, granted_with_filter, permission_denied, route_denied,
+    zone_denied,
+};
 
 /// What a route requires, independent of the claim.
+///
+/// The `Zone…` rules grant every permission for the zone, the filter or body check is applied
+/// to non-owners only. The `Owner…` rules require the owner permission for the zone. Without a
+/// zone in the path (creating a zone), `OwnerAndBody` leaves that to the body check.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Rule {
     /// always deny
@@ -14,12 +21,14 @@ pub enum Rule {
     Open,
     /// allow if the route's zone is the zone of the claim
     Zone,
-    /// zone check, then filter the response by the claim
+    /// zone check, then filter the response for non-owners
     ZoneAndFilter(ResponseFilter),
-    /// zone check, then inspect the body
+    /// zone check, then inspect the body for non-owners
     ZoneAndBody(BodyCheck),
-    /// the claim is checked against the body only (the zone is not part of the path)
-    Body(BodyCheck),
+    /// allow owners only
+    Owner,
+    /// allow owners only, then inspect the body
+    OwnerAndBody(BodyCheck),
     /// allow, but filter the response by the claim
     FilteredList(ResponseFilter),
 }
@@ -27,17 +36,20 @@ pub enum Rule {
 impl Rule {
     /// Resolves the rule for a concrete request; `zone` is the zone addressed by the path, if any.
     pub fn apply(self, claim: &Claim, zone: Option<&str>) -> Result<Grant, Denied> {
-        let zone_permitted = zone.is_some_and(|z| claim.is_zone(z));
-
-        match self {
-            Rule::Never => route_denied(),
-            Rule::Open => granted(),
-            Rule::Zone if zone_permitted => granted(),
-            Rule::ZoneAndBody(kind) if zone_permitted => granted_with_condition(kind),
-            Rule::ZoneAndFilter(kind) if zone_permitted => granted_with_filter(kind),
-            Rule::Zone | Rule::ZoneAndBody(_) | Rule::ZoneAndFilter(_) => zone_denied(),
-            Rule::Body(kind) => granted_with_condition(kind),
-            Rule::FilteredList(kind) => granted_with_filter(kind),
+        match (self, zone) {
+            (Rule::Never, _) => route_denied(),
+            (Rule::Open, _) => granted(),
+            (Rule::FilteredList(kind), _) => granted_with_filter(kind),
+            // creating a zone: the zone is in the body, the body check requires the owner permission
+            (Rule::OwnerAndBody(kind), None) => granted_with_condition(kind),
+            (_, None) => zone_denied(),
+            (_, Some(z)) if !claim.is_zone(z) => zone_denied(),
+            (Rule::OwnerAndBody(kind), Some(z)) if claim.permits(z) => granted_with_condition(kind),
+            (_, Some(z)) if claim.permits(z) => granted(),
+            (Rule::Owner | Rule::OwnerAndBody(_), Some(_)) => permission_denied(),
+            (Rule::Zone, Some(_)) => granted(),
+            (Rule::ZoneAndFilter(kind), Some(_)) => granted_with_filter(kind),
+            (Rule::ZoneAndBody(kind), Some(_)) => granted_with_condition(kind),
         }
     }
 }
@@ -84,5 +96,9 @@ mod dsl {
 
     pub fn zone_denied() -> Result<Grant, Denied> {
         Err(Denied::Zone)
+    }
+
+    pub fn permission_denied() -> Result<Grant, Denied> {
+        Err(Denied::Permission)
     }
 }

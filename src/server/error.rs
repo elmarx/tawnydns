@@ -15,6 +15,8 @@ pub enum Error {
     RouteDenied,
     #[error("access to zone not allowed")]
     ZoneDenied,
+    #[error("Operation not permitted by the token")]
+    PermissionDenied,
     #[error("Invalid request body")]
     InvalidRequestBody,
     #[error("Request body too large")]
@@ -48,9 +50,15 @@ impl Error {
 
     fn status(&self) -> StatusCode {
         match self {
-            Self::RouteMalformed | Self::InvalidRequestBody => StatusCode::BAD_REQUEST,
+            Self::RouteMalformed | Self::InvalidRequestBody => StatusCode::BAD
+
+
+            _REQUEST,
             Self::RouteUnknown => StatusCode::NOT_FOUND,
-            Self::RouteDenied | Self::ZoneDenied | Self::RequestBodyDenied => StatusCode::FORBIDDEN,
+            Self::RouteDenied
+            | Self::ZoneDenied
+            | Self::PermissionDenied
+            | Self::RequestBodyDenied => StatusCode::FORBIDDEN,
             Self::RequestBodyTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::InvalidContentType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::UpstreamBody(_) | Self::UpstreamFilter(_) => StatusCode::BAD_GATEWAY,
@@ -90,6 +98,7 @@ impl From<Denied> for Error {
         match value {
             Denied::Route => Self::RouteDenied,
             Denied::Zone => Self::ZoneDenied,
+            Denied::Permission => Self::PermissionDenied,
         }
     }
 }
@@ -125,6 +134,7 @@ mod tests {
             (Error::RouteUnknown, StatusCode::NOT_FOUND),
             (Error::RouteDenied, StatusCode::FORBIDDEN),
             (Error::ZoneDenied, StatusCode::FORBIDDEN),
+            (Error::PermissionDenied, StatusCode::FORBIDDEN),
             (Error::RequestBodyDenied, StatusCode::FORBIDDEN),
             (Error::RequestBodyTooLarge, StatusCode::PAYLOAD_TOO_LARGE),
             (
