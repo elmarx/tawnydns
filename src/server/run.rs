@@ -1,6 +1,8 @@
 use crate::server::authenticate;
+use crate::server::dyndns;
 use crate::server::handler::handle;
 use crate::server::types::TawnyState;
+use axum::routing::get;
 use axum::{Router, middleware};
 use eros::{AnyError, Context};
 use http::{HeaderValue, Uri};
@@ -23,12 +25,18 @@ pub async fn run(
 
     let state = TawnyState::new(pdns_api_key, public_key, pdns_url);
 
+    // dyndns authenticates on its own (Basic auth), not by `X-API-Key`
+    let dyndns = Router::new()
+        .route("/nic/update", get(dyndns::update))
+        .route("/nic/update/{zone}", get(dyndns::update_zone));
+
     let app = Router::new()
         .fallback(handle)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::authenticate_middleware,
         ))
+        .merge(dyndns)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(tower_http::trace::DefaultMakeSpan::new().level(Level::INFO))

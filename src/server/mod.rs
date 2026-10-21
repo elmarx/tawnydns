@@ -1,6 +1,7 @@
 mod authenticate;
 mod config;
 mod constants;
+mod dyndns;
 mod error;
 mod handler;
 mod proxy;
