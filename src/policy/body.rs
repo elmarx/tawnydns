@@ -1,5 +1,5 @@
 //! Request body checks, run once the body is buffered, and before it is forwarded. A failure denies the request.
-use crate::{pdns, token::Claim};
+use crate::{claim::Claim, pdns};
 use bytes::Bytes;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -74,7 +74,7 @@ impl BodyCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::Permission;
+    use crate::permissions::Permission;
 
     // Helper to create a test claim with given zone
     fn test_claim(zone: &str) -> Claim {

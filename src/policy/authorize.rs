@@ -1,7 +1,9 @@
+use crate::claim::Claim;
+use crate::dns::is_hostname;
 use crate::pdns::Route;
+use crate::permissions::Permission;
 use crate::policy::rule::Rule;
 use crate::policy::{Denied, Grant};
-use crate::token::{Claim, Permission, validate_acme_name};
 
 /// Decides what a token holder may do with a request. Admin never gets here.
 pub fn authorize(claim: &Claim, route: &Route) -> Result<Grant, Denied> {
@@ -60,9 +62,7 @@ impl Claim {
         names.iter().any(|n| match (n.as_str(), relative) {
             ("@" | "*", None) => true,
             // plain hostname labels only, the same as for names of the permission
-            ("*", Some(relative)) => {
-                relative != "@" && relative != "*" && validate_acme_name(relative).is_ok()
-            }
+            ("*", Some(relative)) => is_hostname(relative),
             ("@", Some(_)) | (_, None) => false,
             (n, Some(relative)) => n == relative,
         })

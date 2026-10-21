@@ -3,11 +3,15 @@ use crate::config::resolve_pdns_api_key;
 use clap::Parser;
 use eros::{AnyError, Context};
 
+mod claim;
 mod cli;
 mod config;
 mod content_type;
+mod dns;
+mod jwt;
 mod keygen;
 mod pdns;
+mod permissions;
 mod policy;
 mod server;
 mod token;

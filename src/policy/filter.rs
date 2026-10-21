@@ -1,7 +1,7 @@
 //! Response filters: remove what the claim doesn't cover from a pdns response to an allowed request.
 use bytes::Bytes;
 
-use crate::{pdns, token::Claim};
+use crate::{claim::Claim, pdns};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ResponseFilter {
@@ -46,7 +46,7 @@ impl ResponseFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::token::Permission;
+    use crate::permissions::Permission;
     use serde_json::{Value, json};
 
     fn test_claim(zone: &str) -> Claim {

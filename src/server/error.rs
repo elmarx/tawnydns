@@ -50,10 +50,7 @@ impl Error {
 
     fn status(&self) -> StatusCode {
         match self {
-            Self::RouteMalformed | Self::InvalidRequestBody => StatusCode::BAD
-
-
-            _REQUEST,
+            Self::RouteMalformed | Self::InvalidRequestBody => StatusCode::BAD_REQUEST,
             Self::RouteUnknown => StatusCode::NOT_FOUND,
             Self::RouteDenied
             | Self::ZoneDenied

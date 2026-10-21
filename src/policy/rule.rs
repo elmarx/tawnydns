@@ -1,8 +1,8 @@
 //! Rule application: applies a rule to a claim/zone to generate a Grant
 
+use crate::claim::Claim;
 use crate::policy::grant::{Denied, Grant};
 use crate::policy::{BodyCheck, ResponseFilter};
-use crate::token::Claim;
 use dsl::{
     granted, granted_with_condition, granted_with_filter, permission_denied, route_denied,
     zone_denied,

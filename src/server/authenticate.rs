@@ -1,7 +1,8 @@
+use crate::claim::Claim;
+use crate::jwt;
 use crate::server::constants::X_API_KEY;
 use crate::server::proxy;
 use crate::server::types::TawnyState;
-use crate::token::{Claim, VALIDATION};
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
@@ -37,7 +38,7 @@ fn identify(headers: &HeaderMap, s: &TawnyState) -> Result<Principal, Error> {
             Ok(Principal::Admin)
         }
         // TODO: return more detailed error types (NotAJwt, by calling decode_header first) etc.
-        Some(api_key) => match jsonwebtoken::decode::<Claim>(api_key, &s.public_key, &VALIDATION) {
+        Some(api_key) => match jwt::decode::<Claim>(&s.public_key, api_key) {
             Ok(TokenData { claims, .. }) => Ok(Principal::Token(claims)),
             Err(e) => Err(Error::InvalidApiKey(e)),
         },
@@ -71,7 +72,7 @@ pub async fn authenticate_middleware(
 mod tests {
     use super::*;
     use crate::keygen::generate;
-    use crate::token::Permission;
+    use crate::permissions::Permission;
     use axum::Router;
     use axum::body::to_bytes;
     use axum::middleware;
@@ -112,12 +113,7 @@ mod tests {
             zone: zone.to_string(),
             permission: Permission::Owner,
         };
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA),
-            &claim,
-            key,
-        )
-        .unwrap()
+        jwt::encode(key, &claim).unwrap()
     }
 
     mod identify {
@@ -290,12 +286,8 @@ mod tests {
         #[test]
         fn token_with_unexpected_claims_is_rejected() {
             let (state, encoding_key) = state();
-            let token = jsonwebtoken::encode(
-                &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::EdDSA),
-                &serde_json::json!({ "sub": "example.com." }),
-                &encoding_key,
-            )
-            .unwrap();
+            let token =
+                jwt::encode(&encoding_key, &serde_json::json!({ "sub": "example.com." })).unwrap();
             let sample = headers(X_API_KEY, &token);
 
             let actual = identify(&sample, &state);

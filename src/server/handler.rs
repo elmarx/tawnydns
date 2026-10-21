@@ -1,10 +1,10 @@
+use crate::claim::Claim;
 use crate::content_type;
 use crate::pdns::Route;
 use crate::policy::{self, Grant};
 use crate::server::error::Error;
 use crate::server::proxy::sudo_proxy;
 use crate::server::types::TawnyState;
-use crate::token::Claim;
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, Response};
