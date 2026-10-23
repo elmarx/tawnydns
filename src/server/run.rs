@@ -1,3 +1,6 @@
+use crate::server::authenticate;
+use crate::server::handler::handle;
+use crate::server::types::TawnyState;
 use axum::{Router, middleware};
 use eros::{AnyError, Context};
 use http::{HeaderValue, Uri};
@@ -6,19 +9,6 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
-use types::TawnyState;
-
-use crate::server::handler::handle;
-
-mod authenticate;
-mod config;
-mod constants;
-mod error;
-mod handler;
-mod proxy;
-mod types;
-
-pub use config::resolve_pdns_api_key;
 
 pub async fn run(
     pdns_api_key: HeaderValue,
