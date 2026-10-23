@@ -1,6 +1,6 @@
 # tawnydns — the tenant-addon for PowerDNS
 
-<img src="logo.png" alt="virtual-lb logo" align="right" width="240">
+<img src="logo.png" alt="tawnydns logo" align="right" width="240">
 
 A multi-tenancy proxy for the [PowerDNS Authoritative HTTP API](https://doc.powerdns.com/authoritative/http-api/).
 
@@ -8,7 +8,12 @@ A multi-tenancy proxy for the [PowerDNS Authoritative HTTP API](https://doc.powe
 
 The PowerDNS API supports only a single API key, which grants access to everything. Out of the box, there is no way to restrict access to certain zones.
 
-tawnydns adds support for tenants.
+tawnydns adds support for tenants:
+
+- restrict each tenant to its own zones
+- solve ACME DNS-01 challenges for single names or a whole zone, e.g. with [lego](https://go-acme.github.io/lego/dns/pdns/) or the [cert-manager webhook](https://github.com/zachomedia/cert-manager-webhook-pdns)
+- grant least privilege, e.g. only A, AAAA and TXT records for [external-dns](https://github.com/kubernetes-sigs/external-dns)
+- let a mail server publish its DKIM keys
 
 ## Overview
 
