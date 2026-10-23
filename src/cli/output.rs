@@ -33,6 +33,21 @@ impl Output {
     }
 }
 
+/// Replaces the file at `path` atomically with `contents`, with `mode`.
+pub fn replace(path: &Path, contents: &str, mode: u32) -> io::Result<()> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let mut file = tempfile::NamedTempFile::new_in(dir)?;
+    file.as_file()
+        .set_permissions(Permissions::from_mode(mode))?;
+    file.write_all(contents.as_bytes())?;
+    file.as_file().sync_all()?;
+    file.persist(path)?;
+    Ok(())
+}
+
 /// Creates the file at `path` with `mode`, replaces an existing one only if `force` is set.
 fn create(path: &Path, mode: u32, force: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
@@ -83,6 +98,21 @@ mod tests {
 
         assert_eq!(actual.unwrap_err().kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(fs::read_to_string(&path).unwrap(), "first");
+    }
+
+    #[test]
+    fn replaces_atomically_and_applies_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out");
+        fs::write(&path, "a longer first content").unwrap();
+        fs::set_permissions(&path, Permissions::from_mode(0o644)).unwrap();
+
+        replace(&path, "second", 0o600).unwrap();
+
+        let actual = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(actual, 0o600);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

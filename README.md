@@ -54,6 +54,13 @@ tawnydns token create example.com --name home --name nas --type A --type AAAA
 tawnydns token create example.com --any-name --type TXT
 ```
 
+A token can hold permissions for several zones: `--append` adds the permission to an existing token (signed with the same private key) and prints the new one, `-i`/`--in-place` replaces the existing token instead. The old token stays valid.
+
+```bash
+tawnydns token create example.com -o tenant.jwt
+tawnydns token create --append tenant.jwt -i example.org --acme www
+```
+
 ### Server
 
 See `tawnydns server --help` for all options.

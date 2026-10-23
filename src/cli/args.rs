@@ -88,6 +88,13 @@ pub enum TokenCmd {
     Create {
         #[command(flatten)]
         private_key: PrivateKey,
+        /// add the permission to the permissions of this token (`-` for stdin), which must be
+        /// signed with the private key; an identical permission is not added twice
+        #[arg(long, value_name = "TOKEN")]
+        append: Option<PathBuf>,
+        /// replace the token given to `--append` with the result
+        #[arg(short = 'i', long, requires = "append", conflicts_with = "output")]
+        in_place: bool,
         /// zone the token is valid for (a trailing dot is stripped, no further normalization)
         zone: String,
         /// what the token permits, without any of these options it has full access to the zone

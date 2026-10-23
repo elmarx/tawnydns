@@ -4,19 +4,46 @@ use super::input;
 use super::scope::{Scope, permission_for};
 use crate::claim::Claim;
 use crate::jwt;
+use crate::keypair::public_key_pem;
 use ed25519_dalek::pkcs8::spki::der::zeroize::Zeroizing;
 use eros::Context;
 use jsonwebtoken::{DecodingKey, EncodingKey, TokenData};
 use std::path::Path;
 
-/// Creates a token, see [`permission_for`].
-pub fn create(private_key_file: &Path, zone: String, scope: &Scope) -> eros::Result<String> {
+/// Creates a token with the permission for `zone` and `scope` (see [`permission_for`]). With
+/// `append`, the permission is added to the permissions of that token, which must be signed with
+/// the private key. An identical permission is not added twice.
+pub fn create(
+    private_key_file: &Path,
+    append: Option<&Path>,
+    zone: String,
+    scope: &Scope,
+) -> eros::Result<String> {
     let permission = permission_for(zone, scope).context("invalid permission")?;
-    let claim = Claim {
-        permissions: vec![permission],
+    eros::ensure!(
+        private_key_file != "-" || append.is_none_or(|token_file| token_file != "-"),
+        "the private key and the token to append to can't both be read from stdin"
+    );
+    let private_key =
+        Zeroizing::new(input::read_to_string(private_key_file).context("read private key")?);
+
+    let mut claim = match append {
+        Some(token_file) => {
+            let token = input::read_to_string(token_file).context("read token to append to")?;
+            let public_key = public_key_pem(&private_key)?;
+            decode_token(public_key.as_bytes(), &token)
+                .context("verify token to append to")?
+                .claims
+        }
+        None => Claim {
+            permissions: Vec::new(),
+        },
     };
-    let key = Zeroizing::new(input::read_to_string(private_key_file).context("read private key")?);
-    encode_token(key.as_bytes(), &claim)
+    if !claim.permissions.contains(&permission) {
+        claim.permissions.push(permission);
+    }
+
+    encode_token(private_key.as_bytes(), &claim)
 }
 
 pub fn inspect(public_key_file: &Path, token: &Path) -> eros::Result<TokenData<Claim>> {
@@ -58,6 +85,106 @@ mod tests {
             let actual = decode_token(public_key.as_bytes(), &format!("{token}\n")).unwrap();
 
             assert_eq!(actual.claims, sample);
+        }
+    }
+
+    mod create {
+        use super::*;
+        use std::fs;
+        use std::path::PathBuf;
+        use tempfile::TempDir;
+
+        struct Keys {
+            dir: TempDir,
+            public_key: String,
+        }
+
+        impl Keys {
+            fn new() -> Self {
+                let dir = tempfile::tempdir().unwrap();
+                let (private_key, public_key) = generate().unwrap();
+                fs::write(dir.path().join("key"), private_key.as_bytes()).unwrap();
+                Self { dir, public_key }
+            }
+
+            fn private_key_file(&self) -> PathBuf {
+                self.dir.path().join("key")
+            }
+
+            /// Creates a token for `zone` with full access, appended to the token in `append`.
+            fn create(&self, append: Option<&str>, zone: &str) -> eros::Result<String> {
+                let token_file = append.map(|token| {
+                    let path = self.dir.path().join("token");
+                    fs::write(&path, token).unwrap();
+                    path
+                });
+                create(
+                    &self.private_key_file(),
+                    token_file.as_deref(),
+                    zone.to_string(),
+                    &Scope::default(),
+                )
+            }
+
+            fn decode(&self, token: &str) -> Claim {
+                decode_token(self.public_key.as_bytes(), token)
+                    .unwrap()
+                    .claims
+            }
+        }
+
+        #[test]
+        fn creates_a_token_with_one_permission() {
+            let keys = Keys::new();
+
+            let actual = keys.create(None, "example.com").unwrap();
+
+            assert_eq!(keys.decode(&actual), claim(vec![owner("example.com")]));
+        }
+
+        #[test]
+        fn appends_to_a_token() {
+            let keys = Keys::new();
+            let sample = keys.create(None, "example.com").unwrap();
+
+            let actual = keys
+                .create(Some(&format!("{sample}\n")), "example.org")
+                .unwrap();
+
+            let expected = claim(vec![owner("example.com"), owner("example.org")]);
+            assert_eq!(keys.decode(&actual), expected);
+        }
+
+        #[test]
+        fn skips_a_duplicate_permission() {
+            let keys = Keys::new();
+            let sample = keys.create(None, "example.com").unwrap();
+
+            let actual = keys.create(Some(&sample), "example.com.").unwrap();
+
+            assert_eq!(keys.decode(&actual), claim(vec![owner("example.com")]));
+        }
+
+        #[test]
+        fn rejects_a_token_signed_with_another_key() {
+            let keys = Keys::new();
+            let sample = Keys::new().create(None, "example.com").unwrap();
+
+            let actual = keys.create(Some(&sample), "example.org");
+
+            assert!(actual.is_err());
+        }
+
+        #[test]
+        fn rejects_reading_both_from_stdin() {
+            let actual = create(
+                Path::new("-"),
+                Some(Path::new("-")),
+                "example.com".to_string(),
+                &Scope::default(),
+            );
+
+            assert!(actual.is_err());
         }
     }
 }

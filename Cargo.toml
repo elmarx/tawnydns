@@ -30,7 +30,7 @@ percent-encoding = "2.3.2"
 mime = "0.3.17"
 bytes = "1.12.1"
 http-body-util = "0.1.5"
+tempfile = "3.27.0"
 
 [dev-dependencies]
-tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }

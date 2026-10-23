@@ -1,5 +1,5 @@
 use super::args::{Cli, Cmd, Output, TokenCmd};
-use super::{key, token};
+use super::{key, output, token};
 use crate::server;
 use eros::{AnyError, Context};
 
@@ -36,16 +36,27 @@ pub async fn run(cli: Cli) -> eros::Result<(), AnyError> {
             command:
                 TokenCmd::Create {
                     private_key,
+                    append,
+                    in_place,
                     zone,
                     scope,
                     output,
                 },
         } => {
-            let token = token::create(&private_key.file, zone, &scope)?;
-            output
-                .output
-                .write(&format!("{token}\n"), 0o600, output.force)
-                .context("write token")?;
+            // clap ensures `--in-place` comes with `--append`
+            let in_place = append.clone().filter(|_| in_place);
+            if let Some(path) = &in_place {
+                eros::ensure!(path != "-", "--in-place needs a token file, not stdin");
+            }
+            let token = token::create(&private_key.file, append.as_deref(), zone, &scope)?;
+            let token = format!("{token}\n");
+            match in_place {
+                Some(path) => output::replace(&path, &token, 0o600).context("replace token")?,
+                None => output
+                    .output
+                    .write(&token, 0o600, output.force)
+                    .context("write token")?,
+            }
         }
         Cmd::Token {
             command: TokenCmd::Inspect { public_key, token },
