@@ -65,6 +65,17 @@ pub struct PublicKey {
     pub file: PathBuf,
 }
 
+/// Where to write the result.
+#[derive(clap::Args)]
+pub struct Output {
+    /// file to write to, `-` for stdout
+    #[arg(short, long, value_name = "FILE", default_value = "-")]
+    pub output: crate::output::Output,
+    /// replace the output file if it exists
+    #[arg(long)]
+    pub force: bool,
+}
+
 #[derive(clap::Subcommand)]
 pub enum KeyCmd {
     /// generate a public/private key pair
@@ -73,11 +84,16 @@ pub enum KeyCmd {
         private_key: PrivateKey,
         #[command(flatten)]
         public_key: PublicKey,
+        /// replace existing key files, which invalidates all tokens signed with the old key
+        #[arg(long)]
+        force: bool,
     },
     /// print the public key of a private key
     Public {
         #[command(flatten)]
         private_key: PrivateKey,
+        #[command(flatten)]
+        output: Output,
     },
 }
 
@@ -132,6 +148,8 @@ pub enum TokenCmd {
         /// what the token permits, without any of these options it has full access to the zone
         #[command(flatten)]
         scope: Scope,
+        #[command(flatten)]
+        output: Output,
     },
     /// inspect/validate a token
     Inspect {

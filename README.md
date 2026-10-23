@@ -37,6 +37,7 @@ Create a key pair: the server verifies tokens with the public key, and you sign 
 ```bash
 tawnydns key gen                    # writes tawnydns.key and tawnydns.pub
 tawnydns token create example.com   # prints a token for example.com
+tawnydns token create example.com -o example.com.jwt   # or writes it to a file
 ```
 
 A token can be restricted to ACME DNS-01 challenges (the TXT records `_acme-challenge.<name>`) for names relative to the zone: `@` is the zone itself, `*` any name in the zone.

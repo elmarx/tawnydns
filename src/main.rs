@@ -10,6 +10,7 @@ mod content_type;
 mod dns;
 mod jwt;
 mod keygen;
+mod output;
 mod pdns;
 mod permissions;
 mod policy;
@@ -39,19 +40,33 @@ async fn main() -> eros::Result<(), AnyError> {
                 KeyCmd::Gen {
                     private_key,
                     public_key,
+                    force,
                 },
-        } => keygen::keygen(private_key.file, public_key.file).context("keygen")?,
+        } => keygen::keygen(&private_key.file, &public_key.file, force).context("keygen")?,
         cli::Cmd::Key {
-            command: KeyCmd::Public { private_key },
-        } => print!("{}", keygen::public(private_key.file)?),
+            command: KeyCmd::Public {
+                private_key,
+                output,
+            },
+        } => output
+            .output
+            .write(&keygen::public(private_key.file)?, 0o644, output.force)
+            .context("write public key")?,
         cli::Cmd::Token {
             command:
                 TokenCmd::Create {
                     private_key,
                     zone,
                     scope,
+                    output,
                 },
-        } => println!("{}", token::create(private_key.file, zone, &scope.into())?),
+        } => {
+            let token = token::create(private_key.file, zone, &scope.into())?;
+            output
+                .output
+                .write(&format!("{token}\n"), 0o600, output.force)
+                .context("write token")?;
+        }
         cli::Cmd::Token {
             command: TokenCmd::Inspect { public_key, token },
         } => {

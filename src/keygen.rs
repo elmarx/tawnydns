@@ -1,3 +1,4 @@
+use crate::output;
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::VerifyingKey;
 use ed25519_dalek::pkcs8::DecodePrivateKey;
@@ -8,10 +9,8 @@ use ed25519_dalek::pkcs8::spki::der::zeroize::Zeroizing;
 use eros::Context;
 use getrandom::{SysRng, rand_core::UnwrapErr};
 use std::fs;
-use std::fs::OpenOptions;
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// generate a new keypair, returned as PEM: `(private, public)`
 pub fn generate() -> eros::Result<(Zeroizing<String>, String)> {
@@ -29,22 +28,24 @@ pub fn generate() -> eros::Result<(Zeroizing<String>, String)> {
     Ok((private_key, public_key))
 }
 
-pub fn keygen(private_key_path: PathBuf, public_key_path: PathBuf) -> eros::Result<()> {
+pub fn keygen(private_key_path: &Path, public_key_path: &Path, force: bool) -> eros::Result<()> {
     let (private_key, public_key) = generate()?;
 
-    // create_new refuses to overwrite; mode only applies on creation
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        // .create_new(true) // TODO: make this configurable (--force-overwrite flag or similar)
-        .mode(0o600)
-        .open(private_key_path)
-        .context("open private key file")?;
-    file.write_all(private_key.as_bytes())
-        .context("writing the private key")?;
+    let mut public_file =
+        output::create(public_key_path, 0o644, force).context("create public key file")?;
+    // the public key can be derived again, so it is removed if the private key can't be created
+    let mut private_file = output::create(private_key_path, 0o600, force)
+        .inspect_err(|_| {
+            let _ = fs::remove_file(public_key_path);
+        })
+        .context("create private key file")?;
 
-    fs::write(public_key_path, &public_key).context("writing the public key")?;
+    private_file
+        .write_all(private_key.as_bytes())
+        .context("writing the private key")?;
+    public_file
+        .write_all(public_key.as_bytes())
+        .context("writing the public key")?;
 
     Ok(())
 }
