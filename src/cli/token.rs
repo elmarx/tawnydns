@@ -1,30 +1,23 @@
 //! Creating and inspecting tokens on the command line.
 
+use super::input;
 use super::scope::{Scope, claim_for};
 use crate::claim::Claim;
 use crate::jwt;
+use ed25519_dalek::pkcs8::spki::der::zeroize::Zeroizing;
 use eros::Context;
 use jsonwebtoken::{DecodingKey, EncodingKey, TokenData};
-use std::io::Read;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Creates a token, see [`claim_for`].
-pub fn create(private_key_file: PathBuf, zone: String, scope: &Scope) -> eros::Result<String> {
+pub fn create(private_key_file: &Path, zone: String, scope: &Scope) -> eros::Result<String> {
     let claim = claim_for(zone, scope).context("invalid claim")?;
-    let key = std::fs::read(private_key_file).context("open private key file")?;
-    encode_token(&key, &claim)
+    let key = Zeroizing::new(input::read_to_string(private_key_file).context("read private key")?);
+    encode_token(key.as_bytes(), &claim)
 }
 
-pub fn inspect(public_key_file: PathBuf, token: PathBuf) -> eros::Result<TokenData<Claim>> {
-    let token = if token == *"-" {
-        let mut input = String::new();
-        std::io::stdin()
-            .read_to_string(&mut input)
-            .context("read token from stdin")?;
-        input
-    } else {
-        std::fs::read_to_string(token).context("read token from disk")?
-    };
+pub fn inspect(public_key_file: &Path, token: &Path) -> eros::Result<TokenData<Claim>> {
+    let token = input::read_to_string(token).context("read token")?;
 
     let public_key = std::fs::read(public_key_file).context("open public key file")?;
     decode_token(&public_key, &token)

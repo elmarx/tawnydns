@@ -26,10 +26,15 @@ pub enum Cmd {
         #[arg(long, env = "PDNS_URL", default_value = "http://localhost:8081")]
         pdns_url: Uri,
     },
-    /// manage the key pair to sign and verify tokens
-    Key {
-        #[command(subcommand)]
-        command: KeyCmd,
+    /// generate a private key to sign tokens, or print its public key to verify them
+    Keygen {
+        /// print the public key of the private key (`--private-key-file`) instead of generating one
+        #[arg(long)]
+        public: bool,
+        #[command(flatten)]
+        private_key: PrivateKey,
+        #[command(flatten)]
+        output: Output,
     },
     /// create or inspect tenant tokens (API keys)
     Token {
@@ -41,7 +46,7 @@ pub enum Cmd {
 /// The private key to sign tokens.
 #[derive(clap::Args)]
 pub struct PrivateKey {
-    /// file containing the private key to sign tokens
+    /// file containing the private key to sign tokens, `-` for stdin
     #[arg(
         id = "private_key_file",
         long = "private-key-file",
@@ -75,27 +80,6 @@ pub struct Output {
     /// replace the output file if it exists
     #[arg(long)]
     pub force: bool,
-}
-
-#[derive(clap::Subcommand)]
-pub enum KeyCmd {
-    /// generate a public/private key pair
-    Gen {
-        #[command(flatten)]
-        private_key: PrivateKey,
-        #[command(flatten)]
-        public_key: PublicKey,
-        /// replace existing key files, which invalidates all tokens signed with the old key
-        #[arg(long)]
-        force: bool,
-    },
-    /// print the public key of a private key
-    Public {
-        #[command(flatten)]
-        private_key: PrivateKey,
-        #[command(flatten)]
-        output: Output,
-    },
 }
 
 #[derive(clap::Subcommand)]

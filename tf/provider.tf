@@ -1,7 +1,8 @@
 provider "powerdns" {
   # create a token with
   # `cargo run -- token create example.com`
-  # might require `cargo run -- key gen` prior
+  # might require `cargo run -- keygen -o tawnydns.key` and
+  # `cargo run -- keygen --public -o tawnydns.pub` prior
   api_key = var.tenant_api_key
 }
 

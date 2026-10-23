@@ -34,7 +34,7 @@ impl Output {
 }
 
 /// Creates the file at `path` with `mode`, replaces an existing one only if `force` is set.
-pub fn create(path: &Path, mode: u32, force: bool) -> io::Result<File> {
+fn create(path: &Path, mode: u32, force: bool) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).mode(mode);
     if force {

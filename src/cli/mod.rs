@@ -1,4 +1,5 @@
 mod args;
+mod input;
 mod key;
 mod output;
 mod run;

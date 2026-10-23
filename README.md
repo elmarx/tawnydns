@@ -35,9 +35,10 @@ Run `tawnydns --help` for all commands and options. Logging is configured via th
 Create a key pair: the server verifies tokens with the public key, and you sign a token per tenant with the private key.
 
 ```bash
-tawnydns key gen                    # writes tawnydns.key and tawnydns.pub
-tawnydns token create example.com   # prints a token for example.com
-tawnydns token create example.com -o example.com.jwt   # or writes it to a file
+tawnydns keygen -o tawnydns.key            # writes the private key
+tawnydns keygen --public -o tawnydns.pub   # writes its public key
+tawnydns token create example.com          # prints a token for example.com
+tawnydns token create example.com -o example.com.jwt  # or writes it to a file
 ```
 
 A token can be restricted to ACME DNS-01 challenges (the TXT records `_acme-challenge.<name>`) for names relative to the zone: `@` is the zone itself, `*` any name in the zone.
@@ -79,7 +80,8 @@ The API listens on `127.0.0.1:8081` by default ([`webserver-address`](https://do
 This repository contains a demo setup: PowerDNS via docker compose and an OpenTofu config in `tf/` that creates a zone as a tenant. If you use [direnv](https://direnv.net), `.envrc` sets the environment variables for you.
 
 ```bash
-tawnydns key gen
+tawnydns keygen -o tawnydns.key
+tawnydns keygen --public -o tawnydns.pub
 tawnydns token create example.com > example.com.jwt
 
 docker compose up -d   # PowerDNS on localhost:8081, API key "secret"
