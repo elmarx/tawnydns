@@ -44,6 +44,41 @@
           };
 
           packages.default = pkgs.callPackage ./default.nix { };
+
+          checks.agenix-generator =
+            let
+              tawnydns = pkgs.lib.getExe self.packages.${system}.default;
+              generator = self.lib.agenixTokenGenerator {
+                key = { };
+                permissions = [
+                  {
+                    zone = "example.com";
+                    acme = [ "*" ];
+                  }
+                  {
+                    zone = "example.org";
+                    names = [ "www" ];
+                    types = [ "AAAA" ];
+                  }
+                ];
+              };
+              # an unencrypted key stands in for the age-encrypted one
+              script = generator.script {
+                inherit pkgs;
+                inherit (pkgs) lib;
+                decrypt = "cat";
+                deps = [ { file = "tawnydns.key"; } ];
+              };
+            in
+            pkgs.runCommand "agenix-generator" { } ''
+              ${tawnydns} keygen -o tawnydns.key
+              ${tawnydns} keygen --public --private-key-file tawnydns.key -o tawnydns.pub
+              (${script}) > token
+              ${tawnydns} token inspect --public-key-file tawnydns.pub token | tee claim
+              grep -q '"example.com"' claim
+              grep -q '"example.org"' claim
+              touch $out
+            '';
         };
 
       flake = {
@@ -55,6 +90,8 @@
           imports = [ ./nixos-module.nix ];
           nixpkgs.overlays = [ self.overlays.default ];
         };
+
+        lib.agenixTokenGenerator = import ./agenix-generator.nix { inherit self; };
       };
     };
 }

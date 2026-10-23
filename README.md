@@ -61,6 +61,30 @@ tawnydns token create example.com -o tenant.jwt
 tawnydns token create --append tenant.jwt -i example.org --acme www
 ```
 
+#### agenix-rekey
+
+With [agenix-rekey](https://github.com/oddlama/agenix-rekey), the flake's `lib.agenixTokenGenerator` lets `agenix generate` create tokens from an age-encrypted private key. The decrypted key never touches the disk.
+
+```nix
+age.secrets.tawnydns-key = {
+  rekeyFile = ./secrets/tawnydns.key.age;
+  intermediary = true; # only used to generate tokens, not deployed
+};
+age.secrets.tenant-token = {
+  rekeyFile = ./secrets/tenant-token.age;
+  generator = inputs.tawnydns.lib.agenixTokenGenerator {
+    key = config.age.secrets.tawnydns-key;
+    permissions = [
+      { zone = "example.com"; }
+      { zone = "example.org"; acme = [ "www" ]; }
+      { zone = "example.net"; names = [ "home" ]; types = [ "A" "AAAA" ]; }
+    ];
+  };
+};
+```
+
+A permission takes the options of `tawnydns token create`: `zone`, `acme`, `names`, `anyName`, `types` and `anyType`. A newer private key regenerates the token on `agenix generate`. Changed permissions don't, use `agenix generate --force` for that.
+
 ### Server
 
 See `tawnydns server --help` for all options.
