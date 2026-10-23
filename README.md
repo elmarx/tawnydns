@@ -35,7 +35,7 @@ Run `tawnydns --help` for all commands and options. Logging is configured via th
 Create a key pair: the server verifies tokens with the public key, and you sign a token per tenant with the private key.
 
 ```bash
-tawnydns key gen                    # writes private.key and tawnydns.pub
+tawnydns key gen                    # writes tawnydns.key and tawnydns.pub
 tawnydns token create example.com   # prints a token for example.com
 ```
 

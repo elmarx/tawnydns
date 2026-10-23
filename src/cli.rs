@@ -16,9 +16,8 @@ pub enum Cmd {
         /// file containing the PowerDNS API key (alternatively set `PDNS_API_KEY`)
         #[arg(long, env = "PDNS_API_KEY_FILE")]
         pdns_api_key_file: Option<PathBuf>,
-        /// public key to verify tenant tokens
-        #[arg(long, env = "PUBLIC_KEY_FILE")]
-        public_key_file: PathBuf,
+        #[command(flatten)]
+        public_key: PublicKey,
         /// address to listen on
         #[arg(long, env = "LISTEN_ADDR", default_value = "[::1]:8082")]
         listen: SocketAddr,
@@ -38,19 +37,47 @@ pub enum Cmd {
     },
 }
 
+/// The private key to sign tokens.
+#[derive(clap::Args)]
+pub struct PrivateKey {
+    /// file containing the private key to sign tokens
+    #[arg(
+        id = "private_key_file",
+        long = "private-key-file",
+        value_name = "FILE",
+        env = "PRIVATE_KEY_FILE",
+        default_value = "tawnydns.key"
+    )]
+    pub file: PathBuf,
+}
+
+/// The public key to verify tokens.
+#[derive(clap::Args)]
+pub struct PublicKey {
+    /// file containing the public key to verify tokens
+    #[arg(
+        id = "public_key_file",
+        long = "public-key-file",
+        value_name = "FILE",
+        env = "PUBLIC_KEY_FILE",
+        default_value = "tawnydns.pub"
+    )]
+    pub file: PathBuf,
+}
+
 #[derive(clap::Subcommand)]
 pub enum KeyCmd {
     /// generate a public/private key pair
     Gen {
-        #[arg(default_value = "private.key")]
-        private_key: PathBuf,
-        #[arg(default_value = "tawnydns.pub")]
-        public_key: PathBuf,
+        #[command(flatten)]
+        private_key: PrivateKey,
+        #[command(flatten)]
+        public_key: PublicKey,
     },
     /// print the public key of a private key
     Public {
-        #[arg(default_value = "private.key")]
-        private_key: PathBuf,
+        #[command(flatten)]
+        private_key: PrivateKey,
     },
 }
 
@@ -98,8 +125,8 @@ impl From<Scope> for crate::token::Scope {
 pub enum TokenCmd {
     /// create a token
     Create {
-        #[arg(default_value = "private.key", long)]
-        private_key: PathBuf,
+        #[command(flatten)]
+        private_key: PrivateKey,
         /// zone the token is valid for (a trailing dot is stripped, no further normalization)
         zone: String,
         /// what the token permits, without any of these options it has full access to the zone
@@ -108,8 +135,8 @@ pub enum TokenCmd {
     },
     /// inspect/validate a token
     Inspect {
-        #[arg(default_value = "tawnydns.pub", long)]
-        public_key: PathBuf,
+        #[command(flatten)]
+        public_key: PublicKey,
         /// file containing the token, `-` for stdin
         token: PathBuf,
     },

@@ -2,7 +2,7 @@
 .direnv
 /target
 
-private.key
+tawnydns.key
 tawnydns.pub
 example.com.jwt
 
