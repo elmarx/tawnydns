@@ -1,7 +1,7 @@
 //! Creating and inspecting tokens on the command line.
 
 use super::input;
-use super::scope::{Scope, claim_for};
+use super::scope::{Scope, permission_for};
 use crate::claim::Claim;
 use crate::jwt;
 use ed25519_dalek::pkcs8::spki::der::zeroize::Zeroizing;
@@ -9,9 +9,12 @@ use eros::Context;
 use jsonwebtoken::{DecodingKey, EncodingKey, TokenData};
 use std::path::Path;
 
-/// Creates a token, see [`claim_for`].
+/// Creates a token, see [`permission_for`].
 pub fn create(private_key_file: &Path, zone: String, scope: &Scope) -> eros::Result<String> {
-    let claim = claim_for(zone, scope).context("invalid claim")?;
+    let permission = permission_for(zone, scope).context("invalid permission")?;
+    let claim = Claim {
+        permissions: vec![permission],
+    };
     let key = Zeroizing::new(input::read_to_string(private_key_file).context("read private key")?);
     encode_token(key.as_bytes(), &claim)
 }

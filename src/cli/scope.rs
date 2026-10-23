@@ -1,6 +1,5 @@
 //! What a token created on the command line permits.
 
-use crate::claim::Claim;
 use crate::dns::is_hostname;
 use crate::permissions::{AcmeName, Name, Permission, RrType, Zone};
 
@@ -129,9 +128,9 @@ fn is_rr_type(rtype: &str) -> bool {
         && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
 }
 
-/// A claim for `zone` (a trailing dot is stripped): full access without restrictions, otherwise
-/// what `scope` permits. Names are lowercased and types uppercased.
-pub fn claim_for(zone: String, scope: &Scope) -> Result<Claim, ScopeError> {
+/// A permission for `zone` (a trailing dot is stripped): full access without restrictions,
+/// otherwise what `scope` permits. Names are lowercased and types uppercased.
+pub fn permission_for(zone: String, scope: &Scope) -> Result<Permission, ScopeError> {
     let zone = zone.strip_suffix('.').map(String::from).unwrap_or(zone);
     if zone.is_empty() || zone.ends_with('.') {
         return Err(ScopeError::InvalidZone(zone));
@@ -141,34 +140,31 @@ pub fn claim_for(zone: String, scope: &Scope) -> Result<Claim, ScopeError> {
     let names = Selection::new(scope.any_name, &scope.names, &NAME)?;
     let types = Selection::new(scope.any_type, &scope.types, &RR_TYPE)?;
 
-    let permission = match (acme, names, types) {
-        (Selection::Unset, Selection::Unset, Selection::Unset) => Permission::Owner(zone),
-        (Selection::Only(acme), Selection::Unset, Selection::Unset) => Permission::Acme(zone, acme),
-        (Selection::Unset, Selection::Any, Selection::Any) => Permission::AnyRecord(zone),
+    match (acme, names, types) {
+        (Selection::Unset, Selection::Unset, Selection::Unset) => Ok(Permission::Owner(zone)),
+        (Selection::Only(acme), Selection::Unset, Selection::Unset) => {
+            Ok(Permission::Acme(zone, acme))
+        }
+        (Selection::Unset, Selection::Any, Selection::Any) => Ok(Permission::AnyRecord(zone)),
         (Selection::Unset, Selection::Only(names), Selection::Only(types)) => {
-            Permission::Records(zone, names, types)
+            Ok(Permission::Records(zone, names, types))
         }
         (Selection::Unset, Selection::Any, Selection::Only(types)) => {
-            Permission::AnyName(zone, types)
+            Ok(Permission::AnyName(zone, types))
         }
         (Selection::Unset, Selection::Only(names), Selection::Any) => {
-            Permission::AnyType(zone, names)
+            Ok(Permission::AnyType(zone, names))
         }
-        _ => return Err(ScopeError::Combination),
-    };
-
-    Ok(Claim {
-        permissions: vec![permission],
-    })
+        _ => Err(ScopeError::Combination),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claim::fixtures::claim;
     use crate::permissions::fixtures::{acme, owner};
 
-    mod claim_for {
+    mod permission_for {
         use super::*;
         use crate::permissions::fixtures::{names, types, zone};
 
@@ -176,22 +172,22 @@ mod tests {
             items.iter().map(ToString::to_string).collect()
         }
 
-        fn claim_for_example(scope: &Scope) -> Result<Claim, ScopeError> {
-            claim_for("example.com".to_string(), scope)
+        fn permission_for_example(scope: &Scope) -> Result<Permission, ScopeError> {
+            permission_for("example.com".to_string(), scope)
         }
 
         #[test]
         fn owner_without_restrictions() {
-            let actual = claim_for_example(&Scope::default());
+            let actual = permission_for_example(&Scope::default());
 
-            assert_eq!(actual, Ok(claim(vec![owner("example.com")])));
+            assert_eq!(actual, Ok(owner("example.com")));
         }
 
         #[test]
         fn strips_trailing_dot() {
-            let actual = claim_for("example.com.".to_string(), &Scope::default());
+            let actual = permission_for("example.com.".to_string(), &Scope::default());
 
-            assert_eq!(actual, Ok(claim(vec![owner("example.com")])));
+            assert_eq!(actual, Ok(owner("example.com")));
         }
 
         #[test]
@@ -201,9 +197,9 @@ mod tests {
                 ..Scope::default()
             };
 
-            let actual = claim_for_example(&sample);
+            let actual = permission_for_example(&sample);
 
-            assert_eq!(actual, Ok(claim(vec![acme("example.com", &["www", "@"])])));
+            assert_eq!(actual, Ok(acme("example.com", &["www", "@"])));
         }
 
         #[test]
@@ -214,14 +210,14 @@ mod tests {
                 ..Scope::default()
             };
 
-            let actual = claim_for_example(&sample);
+            let actual = permission_for_example(&sample);
 
             let expected = Permission::Records(
                 zone("example.com"),
                 names(&["home", "@", "*"]),
                 types(&["A", "AAAA"]),
             );
-            assert_eq!(actual, Ok(claim(vec![expected])));
+            assert_eq!(actual, Ok(expected));
         }
 
         #[test]
@@ -252,9 +248,9 @@ mod tests {
                     Permission::AnyRecord(zone("example.com")),
                 ),
             ] {
-                let actual = claim_for_example(&sample);
+                let actual = permission_for_example(&sample);
 
-                assert_eq!(actual, Ok(claim(vec![expected])), "{sample:?}");
+                assert_eq!(actual, Ok(expected), "{sample:?}");
             }
         }
 
@@ -302,7 +298,7 @@ mod tests {
                     ..Scope::default()
                 },
             ] {
-                let actual = claim_for_example(&sample);
+                let actual = permission_for_example(&sample);
 
                 assert_eq!(actual, Err(ScopeError::Combination), "{sample:?}");
             }
@@ -326,12 +322,12 @@ mod tests {
         #[test]
         fn accepts_names_and_types() {
             for name in ["@", "www", "a.b", "_dmarc", "*", "*.dev", "*.a.b"] {
-                let actual = claim_for_example(&records(&[name], &["A"]));
+                let actual = permission_for_example(&records(&[name], &["A"]));
 
                 assert!(actual.is_ok(), "{name:?}");
             }
             for rtype in ["A", "AAAA", "TXT", "NSEC3PARAM", "TYPE65534", "SOA"] {
-                let actual = claim_for_example(&records(&["www"], &[rtype]));
+                let actual = permission_for_example(&records(&["www"], &[rtype]));
 
                 assert!(actual.is_ok(), "{rtype:?}");
             }
@@ -353,7 +349,7 @@ mod tests {
                 "ä",
                 &"a".repeat(64),
             ] {
-                let actual = claim_for_example(&acme_names(&["www", name]));
+                let actual = permission_for_example(&acme_names(&["www", name]));
 
                 assert_eq!(
                     actual,
@@ -369,7 +365,7 @@ mod tests {
                 "", ".", "www.", ".www", "a..b", "www.*", "a.*.b", "**", "*a", "*.", "@.www",
                 "www.@", "a b", "w\\119w", "ä",
             ] {
-                let actual = claim_for_example(&records(&["www", name], &["A"]));
+                let actual = permission_for_example(&records(&["www", name], &["A"]));
 
                 assert_eq!(
                     actual,
@@ -382,7 +378,7 @@ mod tests {
         #[test]
         fn rejects_invalid_types() {
             for rtype in ["", "*", "1A", "A A", " A", "A-B", "TÄ"] {
-                let actual = claim_for_example(&records(&["www"], &["A", rtype]));
+                let actual = permission_for_example(&records(&["www"], &["A", rtype]));
 
                 assert_eq!(
                     actual,
@@ -429,7 +425,7 @@ mod tests {
                     },
                 ),
             ] {
-                let actual = claim_for(zone.to_string(), &sample);
+                let actual = permission_for(zone.to_string(), &sample);
 
                 assert!(actual.is_err(), "{zone:?} {sample:?}");
             }
