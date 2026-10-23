@@ -1,13 +1,8 @@
-//! Creating and inspecting tokens on the command line.
+//! What a token created on the command line permits.
 
 use crate::claim::Claim;
 use crate::dns::is_hostname;
-use crate::jwt;
 use crate::permissions::{AcmeName, Name, Permission, RrType, Zone};
-use eros::Context;
-use jsonwebtoken::{DecodingKey, EncodingKey, TokenData};
-use std::io::Read;
-use std::path::PathBuf;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ScopeError {
@@ -25,26 +20,32 @@ pub enum ScopeError {
     Combination,
 }
 
-pub fn encode_token(private_key_pem: &[u8], claim: &Claim) -> eros::Result<String> {
-    let key = EncodingKey::from_ed_pem(private_key_pem).context("decode private key")?;
-    let token = jwt::encode(&key, claim).context("encoding the token")?;
-    Ok(token)
-}
-
-pub fn decode_token(public_key_pem: &[u8], token: &str) -> eros::Result<TokenData<Claim>> {
-    let key = DecodingKey::from_ed_pem(public_key_pem).context("decode public key")?;
-    let token = jwt::decode::<Claim>(&key, token.trim()).context("decoding token")?;
-    Ok(token)
-}
-
 /// What a token created on the command line permits, for a single zone.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, clap::Args)]
 pub struct Scope {
-    /// names to solve ACME challenges for
+    /// Restrict the token to solving ACME DNS-01 challenges for this name, relative to the
+    /// zone: e.g. `www` for `www.<zone>`, `@` for the zone itself or `*` for any name in the
+    /// zone. Repeat for more names.
+    #[arg(
+        long = "acme",
+        value_name = "NAME",
+        conflicts_with_all = ["names", "any_name", "types", "any_type"]
+    )]
     pub acme_names: Vec<String>,
+    /// Restrict the token to records with this name, relative to the zone: e.g. `www` for
+    /// `www.<zone>`, `@` for the zone itself or `*` for the wildcard record. Repeat for more
+    /// names. Requires `--type` or `--any-type`.
+    #[arg(long = "name", value_name = "NAME", conflicts_with = "any_name")]
     pub names: Vec<String>,
+    /// records of any name, requires `--type` or `--any-type`
+    #[arg(long)]
     pub any_name: bool,
+    /// Restrict the token to records of this type, e.g. `AAAA`. Repeat for more types. Requires
+    /// `--name` or `--any-name`.
+    #[arg(long = "type", value_name = "TYPE", conflicts_with = "any_type")]
     pub types: Vec<String>,
+    /// records of any type, requires `--name` or `--any-name`
+    #[arg(long)]
     pub any_type: bool,
 }
 
@@ -130,7 +131,7 @@ fn is_rr_type(rtype: &str) -> bool {
 
 /// A claim for `zone` (a trailing dot is stripped): full access without restrictions, otherwise
 /// what `scope` permits. Names are lowercased and types uppercased.
-fn claim_for(zone: String, scope: &Scope) -> Result<Claim, ScopeError> {
+pub fn claim_for(zone: String, scope: &Scope) -> Result<Claim, ScopeError> {
     let zone = zone.strip_suffix('.').map(String::from).unwrap_or(zone);
     if zone.is_empty() || zone.ends_with('.') {
         return Err(ScopeError::InvalidZone(zone));
@@ -161,50 +162,11 @@ fn claim_for(zone: String, scope: &Scope) -> Result<Claim, ScopeError> {
     })
 }
 
-/// Creates a token, see [`claim_for`].
-pub fn create(private_key_file: PathBuf, zone: String, scope: &Scope) -> eros::Result<String> {
-    let claim = claim_for(zone, scope).context("invalid claim")?;
-    let key = std::fs::read(private_key_file).context("open private key file")?;
-    encode_token(&key, &claim)
-}
-
-pub fn inspect(public_key_file: PathBuf, token: PathBuf) -> eros::Result<TokenData<Claim>> {
-    let token = if token == *"-" {
-        let mut input = String::new();
-        std::io::stdin()
-            .read_to_string(&mut input)
-            .context("read token from stdin")?;
-        input
-    } else {
-        std::fs::read_to_string(token).context("read token from disk")?
-    };
-
-    let public_key = std::fs::read(public_key_file).context("open public key file")?;
-    decode_token(&public_key, &token)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::claim::fixtures::claim;
-    use crate::keygen::generate;
     use crate::permissions::fixtures::{acme, owner};
-
-    #[test]
-    fn roundtrip() {
-        let (private_key, public_key) = generate().unwrap();
-        for sample in [
-            claim(vec![owner("example.com")]),
-            claim(vec![acme("example.com", &["www", "@"])]),
-            claim(vec![owner("example.com"), acme("example.org", &["*"])]),
-        ] {
-            let token = encode_token(private_key.as_bytes(), &sample).unwrap();
-
-            let actual = decode_token(public_key.as_bytes(), &format!("{token}\n")).unwrap();
-
-            assert_eq!(actual.claims, sample);
-        }
-    }
 
     mod claim_for {
         use super::*;

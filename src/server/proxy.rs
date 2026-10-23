@@ -101,7 +101,7 @@ pub async fn sudo_proxy(State(s): State<TawnyState>, mut req: Request<Body>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keygen::generate;
+    use crate::keypair::generate;
     use axum::Router;
     use axum::body::to_bytes;
     use http::{HeaderValue, Method, StatusCode};

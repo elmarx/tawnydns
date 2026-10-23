@@ -11,11 +11,14 @@ use types::TawnyState;
 use crate::server::handler::handle;
 
 mod authenticate;
+mod config;
 mod constants;
 mod error;
 mod handler;
 mod proxy;
 mod types;
+
+pub use config::resolve_pdns_api_key;
 
 pub async fn run(
     pdns_api_key: HeaderValue,

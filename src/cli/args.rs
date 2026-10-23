@@ -1,3 +1,4 @@
+use super::scope::Scope;
 use http::Uri;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -70,7 +71,7 @@ pub struct PublicKey {
 pub struct Output {
     /// file to write to, `-` for stdout
     #[arg(short, long, value_name = "FILE", default_value = "-")]
-    pub output: crate::output::Output,
+    pub output: super::output::Output,
     /// replace the output file if it exists
     #[arg(long)]
     pub force: bool,
@@ -95,46 +96,6 @@ pub enum KeyCmd {
         #[command(flatten)]
         output: Output,
     },
-}
-
-#[derive(clap::Args)]
-pub struct Scope {
-    /// Restrict the token to solving ACME DNS-01 challenges for this name, relative to the
-    /// zone: e.g. `www` for `www.<zone>`, `@` for the zone itself or `*` for any name in the
-    /// zone. Repeat for more names.
-    #[arg(
-        long = "acme",
-        value_name = "NAME",
-        conflicts_with_all = ["names", "any_name", "types", "any_type"]
-    )]
-    pub acme_names: Vec<String>,
-    /// Restrict the token to records with this name, relative to the zone: e.g. `www` for
-    /// `www.<zone>`, `@` for the zone itself or `*` for the wildcard record. Repeat for more
-    /// names. Requires `--type` or `--any-type`.
-    #[arg(long = "name", value_name = "NAME", conflicts_with = "any_name")]
-    pub names: Vec<String>,
-    /// records of any name, requires `--type` or `--any-type`
-    #[arg(long)]
-    pub any_name: bool,
-    /// Restrict the token to records of this type, e.g. `AAAA`. Repeat for more types. Requires
-    /// `--name` or `--any-name`.
-    #[arg(long = "type", value_name = "TYPE", conflicts_with = "any_type")]
-    pub types: Vec<String>,
-    /// records of any type, requires `--name` or `--any-name`
-    #[arg(long)]
-    pub any_type: bool,
-}
-
-impl From<Scope> for crate::token::Scope {
-    fn from(scope: Scope) -> Self {
-        Self {
-            acme_names: scope.acme_names,
-            names: scope.names,
-            any_name: scope.any_name,
-            types: scope.types,
-            any_type: scope.any_type,
-        }
-    }
 }
 
 #[derive(clap::Subcommand)]

@@ -1,5 +1,5 @@
 //! What the holder of a token may do. Purely declarative: the contents are checked when a token is
-//! created (see [`crate::token`]), not when it is decoded. Unexpected contents just do not match.
+//! created (see [`crate::cli::scope`]), not when it is decoded. Unexpected contents just do not match.
 
 use serde::{Deserialize, Serialize};
 

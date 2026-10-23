@@ -72,7 +72,7 @@ pub async fn authenticate_middleware(
 mod tests {
     use super::*;
     use crate::claim::fixtures::claim;
-    use crate::keygen::generate;
+    use crate::keypair::generate;
     use crate::permissions::fixtures::owner;
     use axum::Router;
     use axum::body::to_bytes;

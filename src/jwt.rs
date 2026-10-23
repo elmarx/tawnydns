@@ -29,7 +29,7 @@ pub fn decode<C: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keygen::generate;
+    use crate::keypair::generate;
     use serde_json::{Value, json};
 
     fn keys() -> (EncodingKey, DecodingKey) {
