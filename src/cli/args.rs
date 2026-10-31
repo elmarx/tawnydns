@@ -41,6 +41,11 @@ pub enum Cmd {
         #[command(subcommand)]
         command: TokenCmd,
     },
+    /// print shell completions to stdout
+    Completions {
+        /// the shell to generate completions for
+        shell: clap_complete::Shell,
+    },
 }
 
 /// The private key to sign tokens.

@@ -14,6 +14,11 @@ pub async fn run(cli: Cli) -> eros::Result<(), AnyError> {
             let pdns_api_key = server::resolve_pdns_api_key(pdns_api_key_file)?;
             server::run(pdns_api_key, public_key.file, listen, pdns_url).await?;
         }
+        Cmd::Completions { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+        }
         Cmd::Keygen {
             public,
             private_key,
